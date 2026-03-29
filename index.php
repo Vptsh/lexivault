@@ -10,8 +10,6 @@
 // ============================================================
 define('APP_VERSION', '1.0.0');
 define('DATA_DIR', __DIR__ . '/lexivault_data');
-define('UPLOADS_DIR', __DIR__ . '/uploads');
-define('UPLOADS_URL', 'uploads');
 define('SESSION_NAME', 'lexivault_session');
 
 session_name(SESSION_NAME);
@@ -25,16 +23,16 @@ if (!is_dir(DATA_DIR)) {
     // Create .htaccess to protect data dir
     file_put_contents(DATA_DIR . '/.htaccess', "Deny from all\n");
 }
-if (!is_dir(UPLOADS_DIR)) {
-    mkdir(UPLOADS_DIR, 0755, true);
-}
 
 define('SYS_FILE', DATA_DIR . '/system.json');
 $isSetup = file_exists(SYS_FILE);
 
 function jsonResponse($data) {
-    ob_clean(); // FIX: Prevent whitespace or notices from breaking JSON
+    if (ob_get_length()) ob_clean(); // FIX: Safely clean buffer to prevent notices from breaking JSON
     header('Content-Type: application/json');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    header('Pragma: no-cache');
+    header('Expires: 0');
     echo json_encode($data);
     exit;
 }
@@ -82,7 +80,7 @@ if (isset($_GET['api']) && $_GET['api'] === 'setup') {
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password VARCHAR(255), name VARCHAR(100), email VARCHAR(100), created_at DATETIME, last_login DATETIME)");
         $pdo->exec("CREATE TABLE IF NOT EXISTS categories (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), description TEXT, color VARCHAR(20))");
-        $pdo->exec("CREATE TABLE IF NOT EXISTS words (id INT AUTO_INCREMENT PRIMARY KEY, term VARCHAR(255), definition TEXT, pronunciation VARCHAR(100), part_of_speech VARCHAR(50), example TEXT, notes TEXT, category_id INT, category_name VARCHAR(100), tags TEXT, difficulty VARCHAR(20), source VARCHAR(100), date_tag DATE, created_at DATETIME, updated_at DATETIME, last_reviewed DATETIME, review_count INT DEFAULT 0, mastered TINYINT(1) DEFAULT 0, starred TINYINT(1) DEFAULT 0, image VARCHAR(255) DEFAULT NULL)");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS words (id INT AUTO_INCREMENT PRIMARY KEY, term VARCHAR(255), definition TEXT, pronunciation VARCHAR(100), part_of_speech VARCHAR(50), example TEXT, notes TEXT, category_id INT, category_name VARCHAR(100), tags TEXT, difficulty VARCHAR(20), source VARCHAR(100), date_tag DATE, created_at DATETIME, updated_at DATETIME, last_reviewed DATETIME, review_count INT DEFAULT 0, mastered TINYINT(1) DEFAULT 0, starred TINYINT(1) DEFAULT 0)");
         $pdo->exec("CREATE TABLE IF NOT EXISTS settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
 
         $hash = password_hash($adminPass, PASSWORD_BCRYPT);
@@ -174,8 +172,6 @@ function getWordsList() {
     foreach($words as &$w) {
         $w['tags'] = $w['tags'] ? json_decode($w['tags'], true) : [];
         $w['mastered'] = (bool)$w['mastered']; $w['starred'] = (bool)$w['starred'];
-        $w['image_raw'] = $w['image'];
-        $w['image'] = !empty($w['image']) ? UPLOADS_URL . '/' . $w['image'] : null;
         $w['review_count'] = (int)$w['review_count']; $w['category_id'] = (int)$w['category_id'];
     }
     return $words;
@@ -184,27 +180,18 @@ function saveWordObj($w) {
     $db = db(); $tags = json_encode($w['tags'] ?? []);
     $m = empty($w['mastered']) ? 0 : 1; $s = empty($w['starred']) ? 0 : 1; $rc = (int)($w['review_count'] ?? 0);
     if (!empty($w['id'])) {
-        $db->prepare("UPDATE words SET term=?, definition=?, pronunciation=?, part_of_speech=?, example=?, notes=?, category_id=?, category_name=?, tags=?, difficulty=?, source=?, updated_at=?, review_count=?, mastered=?, starred=?, last_reviewed=?, image=? WHERE id=?")->execute([
-            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['example']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', date('Y-m-d H:i:s'), $rc, $m, $s, $w['last_reviewed']??null, $w['image']??null, $w['id']
+        $db->prepare("UPDATE words SET term=?, definition=?, pronunciation=?, part_of_speech=?, example=?, notes=?, category_id=?, category_name=?, tags=?, difficulty=?, source=?, updated_at=?, review_count=?, mastered=?, starred=?, last_reviewed=? WHERE id=?")->execute([
+            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['example']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', date('Y-m-d H:i:s'), $rc, $m, $s, $w['last_reviewed']??null, $w['id']
         ]);
         return $w;
     } else {
-        $db->prepare("INSERT INTO words (term, definition, pronunciation, part_of_speech, example, notes, category_id, category_name, tags, difficulty, source, date_tag, created_at, updated_at, review_count, mastered, starred, image) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")->execute([
-            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['example']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', $w['date_tag']??date('Y-m-d'), $w['created_at']??date('Y-m-d H:i:s'), date('Y-m-d H:i:s'), $rc, $m, $s, $w['image']??null
+        $db->prepare("INSERT INTO words (term, definition, pronunciation, part_of_speech, example, notes, category_id, category_name, tags, difficulty, source, date_tag, created_at, updated_at, review_count, mastered, starred) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")->execute([
+            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['example']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', $w['date_tag']??date('Y-m-d'), $w['created_at']??date('Y-m-d H:i:s'), date('Y-m-d H:i:s'), $rc, $m, $s
         ]);
         $w['id'] = $db->lastInsertId(); return $w;
     }
 }
 function deleteWordObj($id) {
-    $stmt = db()->prepare("SELECT image FROM words WHERE id=?");
-    $stmt->execute([$id]);
-    $word = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($word && !empty($word['image'])) {
-        $imagePath = UPLOADS_DIR . '/' . $word['image'];
-        if (file_exists($imagePath)) {
-            @unlink($imagePath);
-        }
-    }
     db()->prepare("DELETE FROM words WHERE id=?")->execute([$id]);
 }
 
@@ -229,7 +216,7 @@ function currentUser() {
 }
 
 function sanitize($str) {
-    return htmlspecialchars(strip_tags(trim($str)), ENT_QUOTES, 'UTF-8');
+    return strip_tags(trim($str));
 }
 
 function sendDigestEmail($settings, $words) {
@@ -358,8 +345,9 @@ function sendDigestEmail($settings, $words) {
 // API HANDLER
 // ============================================================
 if (isset($_GET['pbw'])) {
-    ob_clean();
+    if (ob_get_length()) ob_clean();
     header('Access-Control-Allow-Origin: *');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
     $term = trim($_GET['pbw'] ?? '');
     $format = $_GET['format'] ?? 'text';
 
@@ -420,9 +408,10 @@ if (isset($_GET['pbw'])) {
 }
 
 if (isset($_GET['api']) && $_GET['api'] === 'public_autocomplete') {
-    ob_clean();
+    if (ob_get_length()) ob_clean();
     header('Content-Type: application/json; charset=UTF-8');
     header('Access-Control-Allow-Origin: *');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
     $term = trim($_GET['term'] ?? '');
 
     if (strlen($term) < 2) {
@@ -523,8 +512,7 @@ if (isset($_GET['api'])) {
                 'category_name' => $catMap[intval($data['category_id'] ?? 0)] ?? 'Uncategorized',
                 'tags' => array_values($tags),
                 'difficulty' => sanitize($data['difficulty'] ?? 'medium'),
-                'source' => sanitize($data['source'] ?? ''),
-                'image' => $existing_word['image'] ?? null,
+                'source' => sanitize($data['source'] ?? '')
             ];
 
             if ($existing_word) {
@@ -539,25 +527,12 @@ if (isset($_GET['api'])) {
                 $w['created_at'] = date('Y-m-d H:i:s');
             }
 
-            if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-                $uploadDir = UPLOADS_DIR;
-                $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-                $fileName = uniqid('img_', true) . '.' . strtolower($ext);
-                if (move_uploaded_file($_FILES['image']['tmp_name'], $uploadDir . '/' . $fileName)) {
-                    if ($existing_word && !empty($existing_word['image']) && file_exists($uploadDir . '/' . $existing_word['image'])) {
-                        @unlink($uploadDir . '/' . $existing_word['image']);
-                    }
-                    $w['image'] = $fileName;
-                }
-            } elseif (isset($data['remove_image']) && $data['remove_image'] == '1' && $existing_word && !empty($existing_word['image'])) {
-                if (file_exists(UPLOADS_DIR . '/' . $existing_word['image'])) {
-                    @unlink(UPLOADS_DIR . '/' . $existing_word['image']);
-                }
-                $w['image'] = null;
+            try {
+                $saved = saveWordObj($w);
+                jsonResponse(['success' => true, 'word' => $saved]);
+            } catch (Exception $e) {
+                jsonResponse(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
             }
-
-            $saved = saveWordObj($w);
-            jsonResponse(['success' => true, 'word' => $saved]);
             break;
 
         case 'word_delete':
@@ -976,20 +951,6 @@ $page = $_GET['page'] ?? (isLoggedIn() ? 'dashboard' : 'login');
 if (!isLoggedIn() && !in_array($page, ['login', 'public_search'])) {
     header('Location: ?page=login');
     exit;
-}
-
-// Simple migration check for existing installations
-if ($isSetup) {
-    try {
-        $db = db();
-        // Check for 'image' column in 'words' table
-        $check = $db->query("SHOW COLUMNS FROM `words` LIKE 'image'");
-        if ($check->rowCount() == 0) {
-            $db->exec("ALTER TABLE `words` ADD COLUMN `image` VARCHAR(255) DEFAULT NULL AFTER `starred`");
-        }
-    } catch (Exception $e) {
-        // Ignore errors if table doesn't exist yet, etc.
-    }
 }
 
 // Check digest schedule
@@ -2592,7 +2553,7 @@ function handleAutocomplete() {
 
 async function fetchAutocomplete(term) {
     try {
-        const res = await fetch(`?api=public_autocomplete&term=${encodeURIComponent(term)}`);
+        const res = await fetch(`?api=public_autocomplete&term=${encodeURIComponent(term)}&_t=${Date.now()}`, { cache: 'no-store' });
         const suggestions = await res.json();
         renderAutocomplete(suggestions, term);
     } catch (e) { console.error("Autocomplete fetch failed", e); }
@@ -2684,7 +2645,7 @@ async function doPublicSearch() {
     btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;display:inline-block;vertical-align:middle;border-color:rgba(255,255,255,0.3);border-top-color:white;"></div>';
     
     try {
-        const res = await fetch('?pbw=' + encodeURIComponent(term) + '&format=json');
+        const res = await fetch('?pbw=' + encodeURIComponent(term) + '&format=json&_t=' + Date.now(), { cache: 'no-store' });
         if (!res.ok) throw new Error('Network error');
         const data = await res.json();
         
@@ -3353,20 +3314,6 @@ function escapeHtml(unsafe) {
         <label>Personal Notes</label>
         <textarea id="word-notes" rows="3" placeholder="Mnemonic, personal context, related words..."></textarea>
       </div>
-      <div class="form-field">
-        <label>Image</label>
-        <div style="display:flex; align-items:center; gap:10px;">
-            <input type="file" id="word-image" accept="image/*" onchange="previewWordImage(this)">
-            <div id="word-image-preview" style="display:none;">
-                <img src="" style="max-height:40px; max-width:100px; border-radius:4px; vertical-align:middle;">
-                <button type="button" class="btn btn-icon btn-danger btn-sm" onclick="removeWordImage()" title="Remove Image" style="margin-left:5px;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-            </div>
-        </div>
-        <input type="hidden" id="word-remove-image" value="0">
-        <input type="hidden" id="word-existing-image" value="">
-      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeWordModal()">Cancel</button>
@@ -3571,9 +3518,17 @@ function toastUndo(msg, undoCallback) {
 // ============================================================
 async function api(action, data = {}, method = 'GET') {
   try {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    const opts = { 
+      method, 
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      } 
+    };
     if (method === 'POST') opts.body = JSON.stringify(data);
-    const url = `?api=${action}`;
+    const url = `?api=${action}&_t=${Date.now()}`;
     const res = await fetch(url, opts);
     if (!res.ok) return { success: false, message: 'HTTP Error ' + res.status };
     return await res.json();
@@ -3584,8 +3539,16 @@ async function api(action, data = {}, method = 'GET') {
 }
 async function apiGet(action, params = {}) {
   try {
+    params._t = Date.now();
     const q = new URLSearchParams({ api: action, ...params });
-    const res = await fetch('?' + q);
+    const res = await fetch('?' + q, { 
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
     if (!res.ok) return { success: false, message: 'HTTP Error ' + res.status };
     return await res.json();
   } catch (e) {
@@ -3948,8 +3911,6 @@ function openAddWord() {
   document.getElementById('word-notes').value = '';
   if (quillDef) quillDef.root.innerHTML = '';
   if (quillEx) quillEx.root.innerHTML = '';
-  removeWordImage();
-  document.getElementById('word-existing-image').value = '';
   document.getElementById('word-modal-overlay').classList.add('active');
   setTimeout(() => document.getElementById('word-term').focus(), 200);
 }
@@ -4007,15 +3968,6 @@ async function editWord(id) {
   document.getElementById('word-notes').value = w.notes || '';
   if (quillDef) quillDef.root.innerHTML = w.definition || '';
   if (quillEx) quillEx.root.innerHTML = w.example || '';
-  removeWordImage();
-  if (w.image) {
-      const preview = document.getElementById('word-image-preview');
-      preview.querySelector('img').src = w.image;
-      preview.style.display = 'inline-block';
-      document.getElementById('word-existing-image').value = w.image_raw;
-  } else {
-      document.getElementById('word-existing-image').value = '';
-  }
   document.getElementById('word-modal-overlay').classList.add('active');
 }
 
@@ -4036,12 +3988,6 @@ async function saveWord() {
   fd.append('tags', document.getElementById('word-tags').value);
   fd.append('notes', document.getElementById('word-notes').value);
 
-  const imageFile = document.getElementById('word-image').files[0];
-  if (imageFile) {
-    fd.append('image', imageFile);
-  }
-  fd.append('remove_image', document.getElementById('word-remove-image').value);
-
   const r = await fetch('?api=word_save', {
     method: 'POST',
     body: fd
@@ -4055,27 +4001,6 @@ async function saveWord() {
   } else {
     toast(r.message || 'Save failed', 'error');
   }
-}
-
-function previewWordImage(input) {
-    const preview = document.getElementById('word-image-preview');
-    if (input.files && input.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            preview.querySelector('img').src = e.target.result;
-            preview.style.display = 'inline-block';
-            document.getElementById('word-remove-image').value = '0';
-        }
-        reader.readAsDataURL(input.files[0]);
-    }
-}
-
-function removeWordImage() {
-    const preview = document.getElementById('word-image-preview');
-    preview.style.display = 'none';
-    preview.querySelector('img').src = '';
-    document.getElementById('word-image').value = '';
-    document.getElementById('word-remove-image').value = '1';
 }
 
 // ---- VIEW WORD ----
@@ -4095,8 +4020,8 @@ async function viewWord(id) {
   
   let shareBtnHTML = '';
   if (navigator.share) {
-    shareBtnHTML = `<button class="btn btn-ghost" onclick="shareWord('${copyData}')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> Share
+    shareBtnHTML = `<button class="btn btn-ghost" onclick="shareWord('${copyData}')" title="Share">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> <span class="hide-mobile">Share</span>
     </button>`;
   }
 
@@ -4119,7 +4044,6 @@ async function viewWord(id) {
       </div>
     </div>
     <div class="word-detail-body">
-      ${w.image ? `<div class="detail-section"><img src="${w.image}" style="max-width:100%; border-radius:8px; margin-bottom:16px;"></div>` : ''}
       ${w.definition ? `<div class="detail-section"><div class="detail-section-title">Definition</div><div class="detail-definition">${w.definition}</div></div>` : ''}
       ${w.example ? `<div class="detail-section"><div class="detail-section-title">Example</div><div class="detail-definition" style="font-style:italic">${w.example}</div></div>` : ''}
       ${w.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-definition">${esc(w.notes)}</div></div>` : ''}
@@ -4133,27 +4057,27 @@ async function viewWord(id) {
     </div>`;
   document.getElementById('word-detail-content').innerHTML = content;
   document.getElementById('word-detail-footer').innerHTML = `
-    <button class="btn btn-ghost" onclick="speakWord('${esc(w.term).replace(/'/g, "\\'")}')">
+    <button class="btn btn-ghost" onclick="speakWord('${esc(w.term).replace(/'/g, "\\'")}')" title="Listen">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-      Listen
+      <span class="hide-mobile">Listen</span>
     </button>
-    <button class="btn btn-ghost" onclick="copyEncodedText('${copyData}')">
+    <button class="btn btn-ghost" onclick="copyEncodedText('${copyData}')" title="Copy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-      Copy
+      <span class="hide-mobile">Copy</span>
     </button>
     ${shareBtnHTML}
-    <div style="flex:1"></div>
-    <button class="btn btn-ghost" onclick="toggleStar(${w.id});closeDetailModal()">
+    <div style="flex:1" class="hide-mobile"></div>
+    <button class="btn btn-ghost" onclick="toggleStar(${w.id});closeDetailModal()" title="${w.starred ? 'Unstar' : 'Star'}">
       <svg viewBox="0 0 24 24" fill="${w.starred?'var(--gold)':'none'}" stroke="${w.starred?'var(--gold)':'currentColor'}" stroke-width="2" width="15" height="15"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-      ${w.starred ? 'Unstar' : 'Star'}
+      <span class="hide-mobile">${w.starred ? 'Unstar' : 'Star'}</span>
     </button>
-    <button class="btn btn-success btn-sm" onclick="toggleMastered(${w.id});closeDetailModal()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-      ${w.mastered ? 'Unmark Mastered' : 'Mark Mastered'}
+    <button class="btn btn-success btn-sm" onclick="toggleMastered(${w.id});closeDetailModal()" title="${w.mastered ? 'Unmark Mastered' : 'Mark Mastered'}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="20 6 9 17 4 12"/></svg>
+      <span class="hide-mobile">${w.mastered ? 'Unmark' : 'Mastered'}</span>
     </button>
-    <button class="btn btn-secondary" onclick="closeDetailModal();editWord(${w.id})">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      Edit
+    <button class="btn btn-secondary" onclick="closeDetailModal();editWord(${w.id})" title="Edit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      <span class="hide-mobile">Edit</span>
     </button>
     <button class="btn btn-secondary" onclick="closeDetailModal()">Close</button>`;
   document.getElementById('word-detail-overlay').classList.add('active');
