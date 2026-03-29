@@ -681,11 +681,24 @@ if (isset($_GET['api'])) {
                 $cname = $catMap[$cid] ?? 'Uncategorized';
                 $catCounts[$cname] = ($catCounts[$cname] ?? 0) + 1;
             }
-            // Per day (last 30 days)
+            // Per day (start from today or oldest entry up to 30 days)
             $daily = [];
-            for ($i = 29; $i >= 0; $i--) {
-                $d = date('Y-m-d', strtotime("-$i days"));
-                $daily[$d] = 0;
+            $today = date('Y-m-d');
+            $minDate = $today;
+            foreach ($words as $w) {
+                $d = $w['date_tag'] ?? '';
+                if ($d && $d < $minDate) {
+                    $minDate = $d;
+                }
+            }
+            $thirtyDaysAgo = date('Y-m-d', strtotime('-29 days'));
+            if ($minDate < $thirtyDaysAgo) {
+                $minDate = $thirtyDaysAgo;
+            }
+            $current = $minDate;
+            while ($current <= $today) {
+                $daily[$current] = 0;
+                $current = date('Y-m-d', strtotime($current . ' +1 day'));
             }
             foreach ($words as $w) {
                 $d = $w['date_tag'] ?? '';
@@ -1015,6 +1028,7 @@ if ($isSetup) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title><?= htmlspecialchars($appName) ?></title>
+<link rel="icon" href="https://i.ibb.co/4wFG8GqJ/Screenshot-20260329-171925.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
@@ -2116,7 +2130,7 @@ body {
   gap: 12px;
   font-size: 13px;
 }
-.chart-bar-label { min-width: 120px; color: var(--gray-600); font-weight: 500; text-align: right; }
+.chart-bar-label { width: 120px; color: var(--gray-600); font-weight: 500; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chart-bar-track {
   flex: 1;
   height: 10px;
@@ -2845,7 +2859,7 @@ function escapeHtml(unsafe) {
 
       <div id="wotd-container" style="display:none; margin-bottom:16px;"></div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px" id="dash-charts">
+      <div style="display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px" id="dash-charts">
         <div class="card">
           <div class="card-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--accent)"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -3634,16 +3648,21 @@ async function loadDashboard() {
   entries.forEach(([date, count], i) => {
     const barH = Math.max(2, (count / dmax) * chartH);
     const x = i * (barW + 4);
-    const y = chartH - barH + 10;
+    const y = chartH - barH + 15; // Increased top margin for count text
     const isToday = date === new Date().toISOString().slice(0,10);
-    svgBars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="3" fill="${isToday ? '#2e7dd1' : '#b8d6f5'}" title="${date}: ${count}">
+    svgBars += `<g>`;
+    svgBars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="3" fill="${isToday ? '#2e7dd1' : '#b8d6f5'}">
       <title>${date}: ${count} word${count!==1?'s':''}</title>
     </rect>`;
-    if (isToday || i === 0 || i === entries.length-1) {
-      svgBars += `<text x="${x + barW/2}" y="${chartH + 24}" text-anchor="middle" font-size="8" fill="#9bafc9">${date.slice(5)}</text>`;
+    if (count > 0) {
+        svgBars += `<text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="9" font-weight="600" fill="#344358" style="pointer-events:none;">${count}</text>`;
     }
+    if (isToday || i === 0 || i === entries.length-1 || entries.length <= 7) {
+      svgBars += `<text x="${x + barW/2}" y="${chartH + 28}" text-anchor="middle" font-size="8" fill="#9bafc9" style="pointer-events:none;">${date.slice(5)}</text>`;
+    }
+    svgBars += `</g>`;
   });
-  dailyEl.innerHTML = `<svg viewBox="0 0 ${svgW} 130" style="width:100%;min-width:400px;overflow:visible">${svgBars}</svg>`;
+  dailyEl.innerHTML = `<svg width="${svgW}" height="135" viewBox="0 0 ${svgW} 135" style="overflow:visible; max-width:100%;">${svgBars}</svg>`;
 
   // Most opened list
   const moEl = document.getElementById('most-opened-list');
@@ -3680,21 +3699,6 @@ async function loadDashboard() {
   const sb = document.getElementById('sb-word-count');
   if (sb) sb.textContent = s.total;
 }
-// Make chart responsive
-window.addEventListener('resize', () => {
-  const dc = document.getElementById('dash-charts');
-  const dl = document.getElementById('dash-lists');
-  if (dc && window.innerWidth < 700) dc.style.gridTemplateColumns = '1fr';
-  else if (dc) dc.style.gridTemplateColumns = '1fr 1fr';
-  if (dl && window.innerWidth < 700) dl.style.gridTemplateColumns = '1fr';
-  else if (dl) dl.style.gridTemplateColumns = '1fr 1fr';
-});
-document.addEventListener('DOMContentLoaded', () => {
-  const dc = document.getElementById('dash-charts');
-  const dl = document.getElementById('dash-lists');
-  if (dc && window.innerWidth < 700) dc.style.gridTemplateColumns = '1fr';
-  if (dl && window.innerWidth < 700) dl.style.gridTemplateColumns = '1fr';
-});
 
 function renderWOTD(w) {
   const wc = document.getElementById('wotd-container');
