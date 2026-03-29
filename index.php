@@ -323,12 +323,46 @@ if (isset($_GET['pbw'])) {
                 if (!empty($w['example'])) echo "Example: " . strip_tags($w['example'] ?? '') . "\n";
             }
         } else {
-            header('Content-Type: text/plain; charset=UTF-8');
-            echo "Word not found.";
+            if ($format === 'json') {
+                header('Content-Type: application/json; charset=UTF-8');
+                echo json_encode(['success' => false, 'message' => 'Word not found.']);
+            } else {
+                header('Content-Type: text/plain; charset=UTF-8');
+                echo "Word not found.";
+            }
         }
     } catch (Exception $e) {
         header('Content-Type: text/plain; charset=UTF-8');
         echo "An error occurred during lookup.";
+    }
+    exit;
+}
+
+if (isset($_GET['api']) && $_GET['api'] === 'public_autocomplete') {
+    ob_clean();
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Access-Control-Allow-Origin: *');
+    $term = trim($_GET['term'] ?? '');
+
+    if (strlen($term) < 2) {
+        echo json_encode([]);
+        exit;
+    }
+
+    try {
+        $stmt = db()->prepare("
+            SELECT term FROM words
+            WHERE term LIKE :starts_with_term
+            ORDER BY LENGTH(term) ASC, term ASC
+            LIMIT 5
+        ");
+        // Using starts_with for better autocomplete suggestions
+        $stmt->execute([':starts_with_term' => $term . '%']);
+        $results = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        echo json_encode($results);
+    } catch (Exception $e) {
+        // On error, return an empty array to prevent breaking the frontend
+        echo json_encode([]);
     }
     exit;
 }
@@ -817,9 +851,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $page = $_GET['page'] ?? (isLoggedIn() ? 'dashboard' : 'login');
-if (!isLoggedIn() && $page !== 'login') {
+if (!isLoggedIn() && !in_array($page, ['login', 'public_search'])) {
     header('Location: ?page=login');
     exit;
+}
+
+// Simple migration check for existing installations
+if ($isSetup) {
+    try {
+        $db = db();
+        // Check for 'image' column in 'words' table
+        $check = $db->query("SHOW COLUMNS FROM `words` LIKE 'image'");
+        if ($check->rowCount() == 0) {
+            $db->exec("ALTER TABLE `words` ADD COLUMN `image` VARCHAR(255) DEFAULT NULL AFTER `starred`");
+        }
+    } catch (Exception $e) {
+        // Ignore errors if table doesn't exist yet, etc.
+    }
 }
 
 // Check digest schedule
@@ -856,7 +904,7 @@ if ($isSetup) {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title><?= htmlspecialchars($appName) ?></title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -906,6 +954,32 @@ if ($isSetup) {
   --glass-bg: rgba(255, 255, 255, 0.85);
   --glass-border: 1px solid rgba(255, 255, 255, 0.8);
   --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+}
+
+.autocomplete-items {
+  position: absolute;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-top: none;
+  z-index: 99;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: rgba(13, 31, 53, 0.9);
+  backdrop-filter: blur(10px);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  overflow: hidden;
+}
+.autocomplete-items div {
+  padding: 10px 16px;
+  cursor: pointer;
+  color: var(--navy-100);
+  font-size: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.autocomplete-items div:last-child { border-bottom: none; }
+.autocomplete-items div:hover {
+  background-color: rgba(46,125,209,0.2);
+  color: white;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2122,6 +2196,26 @@ body {
 .dash-list-item:hover { background: rgba(0,0,0,0.02); }
 .dash-list-item:last-child { border-bottom: none; }
 </style>
+<style>
+/* Additional styles for new features */
+.recent-search-tag {
+    display: inline-block;
+    background: rgba(255,255,255,0.08);
+    color: var(--navy-200);
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 12px;
+    margin: 4px;
+    cursor: pointer;
+    transition: var(--transition);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+.recent-search-tag:hover {
+    background: rgba(46,125,209,0.2);
+    color: white;
+    border-color: var(--accent);
+}
+</style>
 </head>
 <body>
 
@@ -2220,7 +2314,7 @@ async function doSetup() {
 }
 </script>
 
-<?php elseif (!isLoggedIn()): ?>
+<?php elseif (!isLoggedIn() && $page === 'login'): ?>
 <!-- ============================================================ LOGIN PAGE ============================================================ -->
 <div class="login-page">
   <div class="login-grid-bg"></div>
@@ -2252,9 +2346,247 @@ async function doSetup() {
         <input type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
       </div>
       <button type="submit" class="btn-login">Sign In to LexiVault</button>
+      <div style="text-align: center; margin-top: 24px;">
+        <a href="?page=public_search" style="color: var(--navy-200); font-size: 13px; text-decoration: none; font-weight: 500; transition: var(--transition);">Or search the public dictionary &rarr;</a>
+      </div>
     </form>
   </div>
 </div>
+
+<?php elseif (!isLoggedIn() && $page === 'public_search'): ?>
+<!-- ============================================================ PUBLIC SEARCH PAGE ============================================================ -->
+<div class="login-page">
+  <div class="login-grid-bg"></div>
+  <div class="login-panel" style="max-width: 600px;">
+    <div class="login-logo" style="margin-bottom: 30px;">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="28" height="28">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </div>
+      <h1>Public Dictionary</h1>
+      <p>Search our public vocabulary repository</p>
+    </div>
+    
+    <div style="display: flex; gap: 12px; margin-bottom: 16px; align-items: stretch; flex-wrap: wrap;">
+       <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0; position: relative;">
+         <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+         <input type="text" id="public-search-input" placeholder="Enter a word to search..." oninput="handleAutocomplete()" autocomplete="off" style="padding-left: 40px; height: 46px; margin: 0;">
+         <div id="autocomplete-list" class="autocomplete-items"></div>
+       </div>
+       <button class="btn-login" onclick="doPublicSearch()" id="public-search-btn" style="width: auto; padding: 0 28px; margin-top: 0; height: 46px;">Search</button>
+    </div>
+
+    <div id="recent-searches-container" style="margin-bottom: 24px; text-align: center; min-height: 28px;">
+        <!-- Recent searches will be injected here -->
+    </div>
+
+    <div id="public-search-results" style="display: none; background: rgba(255,255,255,0.98); border-radius: var(--radius); padding: 28px; text-align: left; box-shadow: 0 16px 40px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.2);">
+       <!-- Results injected via JS -->
+    </div>
+    
+    <div style="text-align: center; margin-top: 24px;">
+        <a href="?page=login" style="color: var(--navy-200); font-size: 13px; text-decoration: none; font-weight: 500;">&larr; Back to Login</a>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- State ---
+let autocompleteDebounce;
+let currentFocus = -1;
+
+// --- Recent Searches ---
+const RECENT_SEARCH_KEY = 'lexivault_public_recent';
+const MAX_RECENT = 5;
+
+function getRecentSearches() {
+    try {
+        const searches = localStorage.getItem(RECENT_SEARCH_KEY);
+        return searches ? JSON.parse(searches) : [];
+    } catch (e) { return []; }
+}
+
+function addRecentSearch(term) {
+    if (!term) return;
+    let searches = getRecentSearches();
+    searches = searches.filter(s => s.toLowerCase() !== term.toLowerCase());
+    searches.unshift(term);
+    if (searches.length > MAX_RECENT) {
+        searches = searches.slice(0, MAX_RECENT);
+    }
+    try {
+        localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(searches));
+        renderRecentSearches();
+    } catch (e) { console.error("Could not save recent searches", e); }
+}
+
+function renderRecentSearches() {
+    const container = document.getElementById('recent-searches-container');
+    const searches = getRecentSearches();
+    if (searches.length > 0) {
+        container.innerHTML = `
+            <span style="font-size: 11px; color: var(--gray-400); text-transform: uppercase; font-weight: 500; letter-spacing: 0.5px; margin-right: 8px;">Recent:</span>
+            ${searches.map(s => `<span class="recent-search-tag" onclick="clickRecentSearch('${escapeHtml(s)}')">${escapeHtml(s)}</span>`).join('')}
+        `;
+    } else {
+        container.innerHTML = '';
+    }
+}
+
+function clickRecentSearch(term) {
+    document.getElementById('public-search-input').value = term;
+    doPublicSearch();
+}
+
+// --- Autocomplete ---
+function handleAutocomplete() {
+    clearTimeout(autocompleteDebounce);
+    autocompleteDebounce = setTimeout(() => {
+        const term = document.getElementById('public-search-input').value;
+        if (term.length < 2) {
+            closeAllLists();
+            return;
+        }
+        fetchAutocomplete(term);
+    }, 250);
+}
+
+async function fetchAutocomplete(term) {
+    try {
+        const res = await fetch(`?api=public_autocomplete&term=${encodeURIComponent(term)}`);
+        const suggestions = await res.json();
+        renderAutocomplete(suggestions, term);
+    } catch (e) { console.error("Autocomplete fetch failed", e); }
+}
+
+function renderAutocomplete(suggestions, term) {
+    const list = document.getElementById('autocomplete-list');
+    closeAllLists();
+    if (!suggestions || suggestions.length === 0) return;
+
+    currentFocus = -1;
+    list.innerHTML = '';
+    suggestions.forEach(suggestion => {
+        const item = document.createElement('DIV');
+        const regex = new RegExp(`(${escapeRegExp(term)})`, 'gi');
+        item.innerHTML = escapeHtml(suggestion).replace(regex, '<strong>$1</strong>');
+        item.addEventListener('click', function() {
+            document.getElementById('public-search-input').value = suggestion;
+            closeAllLists();
+            doPublicSearch();
+        });
+        list.appendChild(item);
+    });
+}
+
+function closeAllLists(elmnt) {
+    const items = document.getElementsByClassName("autocomplete-items");
+    for (let i = 0; i < items.length; i++) {
+        if (elmnt != items[i] && elmnt != document.getElementById('public-search-input')) {
+            items[i].innerHTML = '';
+        }
+    }
+}
+
+function addActive(x) {
+    if (!x) return false;
+    removeActive(x);
+    if (currentFocus >= x.length) currentFocus = 0;
+    if (currentFocus < 0) currentFocus = (x.length - 1);
+    x[currentFocus].classList.add("autocomplete-active");
+}
+
+function removeActive(x) {
+    for (var i = 0; i < x.length; i++) {
+        x[i].classList.remove("autocomplete-active");
+    }
+}
+
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// --- Event Listeners ---
+document.addEventListener('DOMContentLoaded', renderRecentSearches);
+
+document.getElementById('public-search-input').addEventListener('keydown', function(e) {
+    let x = document.getElementById("autocomplete-list");
+    if (x) x = x.getElementsByTagName("div");
+    if (e.key === 'ArrowDown') {
+        currentFocus++;
+        addActive(x);
+    } else if (e.key === 'ArrowUp') {
+        currentFocus--;
+        addActive(x);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (currentFocus > -1) {
+            if (x) x[currentFocus].click();
+        } else {
+            doPublicSearch();
+        }
+        closeAllLists();
+    }
+});
+
+document.addEventListener("click", function (e) {
+    closeAllLists(e.target);
+});
+
+// --- Main Search Function ---
+async function doPublicSearch() {
+    const term = document.getElementById('public-search-input').value.trim();
+    if (!term) return;
+    
+    const btn = document.getElementById('public-search-btn');
+    const resDiv = document.getElementById('public-search-results');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;display:inline-block;vertical-align:middle;border-color:rgba(255,255,255,0.3);border-top-color:white;"></div>';
+    
+    try {
+        const res = await fetch('?pbw=' + encodeURIComponent(term) + '&format=json');
+        if (!res.ok) throw new Error('Network error');
+        const data = await res.json();
+        
+        resDiv.style.display = 'block';
+        if (data.success && data.word) {
+            addRecentSearch(term); // Add to recent searches on success
+            const w = data.word;
+            resDiv.innerHTML = `
+                <div style="margin-bottom: 16px; border-bottom: 1px solid var(--gray-200); padding-bottom: 16px;">
+                    <h2 style="color: var(--navy-900); font-size: 28px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">${escapeHtml(w.term)}</h2>
+                    <div style="margin-top: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        ${w.pronunciation ? `<span style="color: var(--gray-500); font-style: italic; font-size: 15px;">${escapeHtml(w.pronunciation)}</span>` : ''}
+                        ${w.part_of_speech ? `<span style="background: var(--navy-50); color: var(--navy-700); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(w.part_of_speech)}</span>` : ''}
+                    </div>
+                </div>
+                <div style="font-size: 15px; color: var(--gray-700); line-height: 1.6;">
+                    <strong style="color: var(--navy-800);">Definition:</strong> ${w.definition || '<em style="color: var(--gray-400);">No definition available.</em>'}
+                </div>
+                ${w.example ? `<div style="font-size: 14.5px; color: var(--gray-600); margin-top: 14px; font-style: italic; background: var(--gray-50); border-left: 4px solid var(--accent); padding: 12px 16px; border-radius: 0 6px 6px 0;">"${w.example}"</div>` : ''}
+            `;
+        } else {
+            resDiv.innerHTML = '<div style="text-align: center; color: var(--gray-500); padding: 30px 20px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48" style="opacity: 0.3; margin-bottom: 10px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><br>Word not found.</div>';
+        }
+    } catch (e) {
+        resDiv.style.display = 'block';
+        resDiv.innerHTML = '<div style="text-align: center; color: var(--danger); padding: 20px;">An error occurred during search. Please try again.</div>';
+    }
+    
+    btn.disabled = false;
+    btn.innerHTML = 'Search';
+}
+function escapeHtml(unsafe) {
+    return (unsafe||'').toString()
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+</script>
 
 <?php else: ?>
 <!-- ============================================================ APP ============================================================ -->
