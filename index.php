@@ -234,6 +234,11 @@ function sanitize($str) {
 
 function sendDigestEmail($settings, $words) {
     if (empty($settings['smtp_host']) || empty($settings['digest_email'])) return false;
+
+    // Determine base URL for links
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || ($_SERVER['SERVER_PORT'] ?? 80) == 443) ? "https://" : "http://";
+    $baseUrl = $protocol . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(str_replace('index.php', '', $_SERVER['SCRIPT_NAME'] ?? '/'), '/');
+
     $todayWords = array_filter($words, function($w) {
         return isset($w['date_tag']) && $w['date_tag'] === date('Y-m-d');
     });
@@ -249,10 +254,11 @@ function sendDigestEmail($settings, $words) {
     $body .= "<div style='background:#fff;padding:30px;border-radius:0 0 8px 8px'>";
     $body .= "<p style='color:#333;font-size:16px'>Here are your words for today:</p>";
     foreach ($todayWords as $w) {
+        $wordUrl = $baseUrl . '/?page=words&view_id=' . $w['id'];
         $body .= "<div style='border-left:4px solid #1a5276;padding:15px 20px;margin:15px 0;background:#f8faff;border-radius:0 6px 6px 0'>";
         $termDisplay = htmlspecialchars($w['term']);
         if (!empty($w['pronunciation'])) $termDisplay .= " <span style='color:#666;font-size:14px;font-weight:normal;font-style:italic'>" . htmlspecialchars($w['pronunciation']) . "</span>";
-        $body .= "<h3 style='color:#0d2137;margin:0 0 6px;font-size:18px'>{$termDisplay}</h3>";
+        $body .= "<h3 style='color:#0d2137;margin:0 0 6px;font-size:18px'><a href='{$wordUrl}' style='color: #0d2137; text-decoration: none;'>{$termDisplay}</a></h3>";
         $body .= "<p style='color:#666;margin:0;font-size:14px'>" . strip_tags($w['definition'] ?? '') . "</p>";
         if (!empty($w['example'])) {
             $body .= "<p style='color:#4a8fd4;margin:8px 0 0;font-size:13px;font-style:italic'>\"" . strip_tags($w['example']) . "\"</p>";
