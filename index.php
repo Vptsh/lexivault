@@ -1024,8 +1024,8 @@ if ($isSetup) {
   --danger: #c0392b;
   --danger-light: #fef2f0;
   --gold: #c9a227;
-  --sidebar-w: 260px;
-  --header-h: 64px;
+  --sidebar-w: 250px;
+  --header-h: 60px;
   --radius: 10px;
   --radius-sm: 6px;
   --shadow-sm: 0 2px 8px rgba(13,31,53,0.04);
@@ -1045,22 +1045,23 @@ if ($isSetup) {
   top: 100%;
   left: 0;
   right: 0;
-  background: rgba(13, 31, 53, 0.9);
-  backdrop-filter: blur(10px);
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 .autocomplete-items div {
   padding: 10px 16px;
   cursor: pointer;
-  color: var(--navy-100);
+  color: var(--gray-800);
   font-size: 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid var(--gray-100);
 }
 .autocomplete-items div:last-child { border-bottom: none; }
 .autocomplete-items div:hover {
-  background-color: rgba(46,125,209,0.2);
-  color: white;
+  background-color: var(--gray-50);
+  color: var(--accent);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1086,36 +1087,36 @@ body {
 .login-page {
   min-height: 100vh;
   display: flex;
-  background: linear-gradient(135deg, var(--navy-950) 0%, var(--navy-800) 50%, var(--navy-600) 100%);
+  background: linear-gradient(135deg, #f6f8fd 0%, #f1f5f9 100%);
   position: relative;
   overflow: hidden;
+  padding: 20px;
 }
 .login-page::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at 20% 50%, rgba(46,125,209,0.15) 0%, transparent 60%),
-              radial-gradient(ellipse at 80% 20%, rgba(26,64,112,0.2) 0%, transparent 50%);
+  background: radial-gradient(ellipse at 20% 50%, rgba(46,125,209,0.05) 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 20%, rgba(26,64,112,0.05) 0%, transparent 50%);
 }
 .login-grid-bg {
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 .login-panel {
   position: relative;
   z-index: 10;
   margin: auto;
-  background: rgba(255,255,255,0.04);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--white);
+  border: 1px solid var(--gray-200);
   border-radius: 20px;
-  padding: 52px 48px;
+  padding: 48px 40px;
   width: 100%;
   max-width: 440px;
-  box-shadow: 0 32px 80px rgba(0,0,0,0.4);
+  box-shadow: 0 16px 48px rgba(13,31,53,0.08);
 }
 .login-logo {
   text-align: center;
@@ -1133,20 +1134,20 @@ body {
   box-shadow: 0 8px 24px rgba(46,125,209,0.4);
 }
 .login-logo h1 {
-  font-size: 32px;
-  font-weight: 600;
-  color: var(--white);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--navy-900);
   letter-spacing: -0.5px;
 }
 .login-logo p {
-  color: var(--navy-200);
-  font-size: 13px;
+  color: var(--gray-500);
+  font-size: 14px;
   margin-top: 4px;
 }
 .login-error {
-  background: rgba(192,57,43,0.2);
-  border: 1px solid rgba(192,57,43,0.4);
-  color: #f5a9a9;
+  background: var(--danger-light);
+  border: 1px solid rgba(192,57,43,0.3);
+  color: var(--danger);
   padding: 12px 16px;
   border-radius: var(--radius-sm);
   font-size: 13px;
@@ -1158,7 +1159,7 @@ body {
 .form-group { margin-bottom: 20px; }
 .form-group label {
   display: block;
-  color: var(--navy-100);
+  color: var(--gray-600);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.8px;
@@ -1167,11 +1168,11 @@ body {
 }
 .form-group input {
   width: 100%;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: var(--white);
+  border: 1px solid var(--gray-200);
   border-radius: var(--radius-sm);
   padding: 12px 16px;
-  color: var(--white);
+  color: var(--gray-800);
   font-size: 14px;
   font-family: inherit;
   transition: var(--transition);
@@ -1179,14 +1180,14 @@ body {
 }
 .form-group input:focus {
   border-color: var(--accent);
-  background: rgba(46,125,209,0.1);
-  box-shadow: 0 0 0 3px rgba(46,125,209,0.15);
+  background: var(--white);
+  box-shadow: 0 0 0 3px rgba(46,125,209,0.1);
 }
-.form-group input::placeholder { color: rgba(255,255,255,0.3); }
+.form-group input::placeholder { color: var(--gray-400); }
 .btn-login {
   width: 100%;
   padding: 13px;
-  background: linear-gradient(135deg, var(--accent), var(--navy-500));
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: var(--radius-sm);
@@ -1200,12 +1201,13 @@ body {
 }
 .btn-login:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(46,125,209,0.4);
+  background: var(--accent-light);
+  box-shadow: 0 6px 16px rgba(46,125,209,0.3);
 }
 .login-hint {
   text-align: center;
   margin-top: 24px;
-  color: rgba(255,255,255,0.3);
+  color: var(--gray-500);
   font-size: 12px;
 }
 
@@ -1218,7 +1220,7 @@ body {
 /* ---- SIDEBAR ---- */
 .sidebar {
   width: var(--sidebar-w);
-  background: var(--navy-900);
+  background: var(--white);
   position: fixed;
   top: 0; left: 0; bottom: 0;
   z-index: 100;
@@ -1226,61 +1228,64 @@ body {
   flex-direction: column;
   overflow: hidden;
   transition: transform 0.3s ease;
-  border-right: 1px solid rgba(255,255,255,0.05);
+  border-right: 1px solid var(--gray-200);
 }
 .sidebar-logo {
-  padding: 24px 20px 20px;
+  padding: 20px 24px;
   display: flex;
   align-items: center;
   gap: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  border-bottom: 1px solid var(--gray-100);
 }
 .sidebar-logo .logo-mark {
-  width: 38px; height: 38px;
+  width: 36px; height: 36px;
   background: linear-gradient(135deg, var(--navy-400), var(--accent));
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(46,125,209,0.25);
 }
 .sidebar-logo h2 {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--white);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--navy-900);
   letter-spacing: -0.3px;
 }
 .sidebar-logo span {
-  font-size: 10px;
-  color: var(--navy-300);
+  font-size: 11px;
+  color: var(--gray-500);
   display: block;
   margin-top: -2px;
+  font-weight: 500;
 }
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 12px;
+  padding: 24px 16px;
 }
 .sidebar-section {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 .sidebar-section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 1.2px;
+  letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--navy-400);
+  color: var(--gray-400);
   padding: 0 10px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
   border-radius: var(--radius-sm);
-  color: var(--navy-200);
+  color: var(--gray-600);
   text-decoration: none;
-  font-size: 13.5px;
-  font-weight: 400;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   transition: var(--transition);
   border: none;
@@ -1289,16 +1294,18 @@ body {
   text-align: left;
 }
 .nav-item:hover {
-  background: rgba(255,255,255,0.06);
-  color: var(--white);
+  background: var(--gray-50);
+  color: var(--navy-900);
 }
 .nav-item.active {
-  background: rgba(46,125,209,0.2);
-  color: var(--white);
-  font-weight: 500;
+  background: var(--navy-50);
+  color: var(--accent);
+  font-weight: 600;
 }
-.nav-item.active svg { color: var(--navy-300); }
-.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.8; }
+.nav-item.active svg { color: var(--accent); }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--gray-400); transition: var(--transition); }
+.nav-item:hover svg { color: var(--gray-600); }
+.nav-item.active:hover svg { color: var(--accent); }
 .nav-badge {
   margin-left: auto;
   background: var(--accent);
@@ -1311,46 +1318,48 @@ body {
   text-align: center;
 }
 .sidebar-user {
-  padding: 16px 14px;
-  border-top: 1px solid rgba(255,255,255,0.07);
+  padding: 16px 20px;
+  border-top: 1px solid var(--gray-100);
   display: flex;
   align-items: center;
   gap: 10px;
+  background: var(--gray-50);
 }
 .user-avatar {
-  width: 34px; height: 34px;
-  background: linear-gradient(135deg, var(--navy-500), var(--accent));
+  width: 36px; height: 36px;
+  background: var(--accent);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   color: white;
   font-weight: 600;
   font-size: 13px;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(46,125,209,0.3);
 }
 .user-info { flex: 1; min-width: 0; }
 .user-info .uname {
-  color: var(--white);
-  font-size: 13px;
-  font-weight: 500;
+  color: var(--navy-900);
+  font-size: 13.5px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .user-info .urole {
-  color: var(--navy-400);
+  color: var(--gray-500);
   font-size: 11px;
 }
 .logout-btn {
-  background: none;
-  border: none;
-  color: var(--navy-400);
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  color: var(--gray-500);
   cursor: pointer;
-  padding: 4px;
+  padding: 6px;
   transition: var(--transition);
   display: flex;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
-.logout-btn:hover { color: var(--danger); background: rgba(192,57,43,0.1); }
+.logout-btn:hover { color: var(--danger); border-color: var(--danger-light); background: var(--danger-light); }
 
 /* ---- MAIN CONTENT ---- */
 .main-content {
@@ -1378,20 +1387,22 @@ body {
   box-shadow: var(--shadow-sm);
 }
 .header-title {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--navy-900);
   flex: 1;
+  letter-spacing: -0.3px;
 }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .hamburger {
   display: none;
-  background: none;
-  border: none;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
   cursor: pointer;
-  color: var(--gray-600);
+  color: var(--navy-900);
   padding: 6px;
   border-radius: 6px;
+  box-shadow: var(--shadow-sm);
 }
 
 /* ---- PAGE CONTENT ---- */
@@ -1404,27 +1415,27 @@ body {
 /* ---- STATS CARDS ---- */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 28px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
 }
 .stat-card {
   background: var(--glass-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: var(--radius);
-  padding: 22px 24px;
+  padding: 16px 20px;
   box-shadow: var(--shadow-sm);
   border: var(--glass-border);
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   transition: var(--transition);
 }
 .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 .stat-icon {
-  width: 48px; height: 48px;
-  border-radius: 12px;
+  width: 42px; height: 42px;
+  border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
@@ -1432,9 +1443,9 @@ body {
 .stat-icon.green { background: rgba(26,124,92,0.1); color: var(--success); }
 .stat-icon.gold { background: rgba(201,162,39,0.1); color: var(--gold); }
 .stat-icon.navy { background: rgba(13,31,53,0.07); color: var(--navy-600); }
-.stat-icon svg { width: 22px; height: 22px; }
+.stat-icon svg { width: 20px; height: 20px; }
 .stat-info .stat-value {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 600;
   color: var(--navy-900);
   line-height: 1;
@@ -1498,10 +1509,10 @@ body {
   -webkit-backdrop-filter: blur(16px);
   border: var(--glass-border);
   border-radius: var(--radius);
-  padding: 16px 20px;
+  padding: 12px 16px;
   margin-bottom: 20px;
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
   align-items: center;
   box-shadow: var(--glass-shadow);
@@ -1824,19 +1835,19 @@ body {
   overflow: hidden;
 }
 .card-header {
-  padding: 18px 22px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--gray-100);
   display: flex;
   align-items: center;
   gap: 10px;
 }
 .card-header h3 {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--navy-900);
   flex: 1;
 }
-.card-body { padding: 22px; }
+.card-body { padding: 16px 18px; }
 
 /* ---- WORD DETAIL VIEW ---- */
 .word-detail {
@@ -2163,11 +2174,13 @@ body {
   .form-row { grid-template-columns: 1fr; }
   .words-grid { grid-template-columns: 1fr; }
   .quiz-choices { grid-template-columns: 1fr; }
+  .login-panel { padding: 40px 24px; }
 }
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: 1fr 1fr; }
-  .filter-bar { flex-direction: column; }
+  .filter-bar { flex-direction: column; gap: 10px; padding: 12px; }
   .search-input-wrap { min-width: unset; width: 100%; }
+  .filter-select { width: 100%; }
   .header-title { font-size: 18px; }
 }
 
@@ -2267,7 +2280,7 @@ body {
 
 /* ---- DASH LIST ITEM ---- */
 .dash-list-item {
-  padding: 14px 20px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--gray-100);
   display: flex;
   justify-content: space-between;
@@ -2281,19 +2294,19 @@ body {
 /* Additional styles for new features */
 .recent-search-tag {
     display: inline-block;
-    background: rgba(255,255,255,0.08);
-    color: var(--navy-200);
+    background: var(--gray-100);
+    color: var(--gray-700);
     padding: 5px 12px;
     border-radius: 15px;
     font-size: 12px;
     margin: 4px;
     cursor: pointer;
     transition: var(--transition);
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid var(--gray-200);
 }
 .recent-search-tag:hover {
-    background: rgba(46,125,209,0.2);
-    color: white;
+    background: var(--navy-50);
+    color: var(--navy-700);
     border-color: var(--accent);
 }
 </style>
@@ -2312,7 +2325,7 @@ body {
     <div id="setup-error" class="login-error" style="display:none; margin-bottom: 20px;"></div>
     <form id="setup-form" onsubmit="event.preventDefault(); doSetup()">
       <div id="setup-step-1">
-        <div style="background:rgba(0,0,0,0.2);padding:16px;border-radius:8px;margin-bottom:20px;border:1px solid rgba(255,255,255,0.05)">
+        <div style="background:var(--gray-50);padding:16px;border-radius:8px;margin-bottom:20px;border:1px solid var(--gray-200)">
           <div class="form-group"><label>DB Host & Port</label><div style="display:flex;gap:10px"><input type="text" id="setup-db-host" value="localhost" style="flex:2"><input type="text" id="setup-db-port" value="3306" style="flex:1"></div></div>
           <div class="form-group"><label>Database Name</label><input type="text" id="setup-db-name" value="lexivault"></div>
           <div class="form-group"><label>DB User & Pass</label><div style="display:flex;gap:10px"><input type="text" id="setup-db-user" value="root" style="flex:1"><input type="password" id="setup-db-pass" placeholder="DB Password" style="flex:1"></div></div>
@@ -2320,7 +2333,7 @@ body {
         <button type="button" class="btn-login" id="setup-next-btn" onclick="goToSetupStep2()">Test Connection & Next</button>
       </div>
       <div id="setup-step-2" style="display:none">
-        <h4 style="color:var(--navy-100);font-size:14px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:6px">Admin Account</h4>
+        <h4 style="color:var(--navy-900);font-size:14px;margin-bottom:12px;border-bottom:1px solid var(--gray-200);padding-bottom:6px">Admin Account</h4>
         <div class="form-group"><label>Admin Name</label><input type="text" id="setup-admin-name" value="Administrator" required></div>
         <div class="form-group"><label>Admin Username</label><input type="text" id="setup-admin-user" value="admin" required></div>
         <div class="form-group"><label>Admin Password</label><input type="password" id="setup-admin-pass" value="admin123" required></div>
@@ -2428,7 +2441,7 @@ async function doSetup() {
       </div>
       <button type="submit" class="btn-login">Sign In to LexiVault</button>
       <div style="text-align: center; margin-top: 24px;">
-        <a href="?page=public_search" style="color: var(--navy-200); font-size: 13px; text-decoration: none; font-weight: 500; transition: var(--transition);">Or search the public dictionary &rarr;</a>
+        <a href="?page=public_search" style="color: var(--accent); font-size: 13px; text-decoration: none; font-weight: 500; transition: var(--transition);">Or search the public dictionary &rarr;</a>
       </div>
     </form>
   </div>
@@ -2451,8 +2464,8 @@ async function doSetup() {
     
     <div style="display: flex; gap: 12px; margin-bottom: 16px; align-items: stretch; flex-wrap: wrap;">
        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0; position: relative;">
-         <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-         <input type="text" id="public-search-input" placeholder="Enter a word to search..." oninput="handleAutocomplete()" autocomplete="off" style="padding-left: 40px; height: 46px; margin: 0;">
+         <svg viewBox="0 0 24 24" fill="none" stroke="var(--gray-400)" stroke-width="2" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+         <input type="text" id="public-search-input" placeholder="Enter a word to search..." oninput="handleAutocomplete()" autocomplete="off" style="padding-left: 40px; height: 46px; margin: 0; background: var(--white); border: 1px solid var(--gray-200); color: var(--gray-800);">
          <div id="autocomplete-list" class="autocomplete-items"></div>
        </div>
        <button class="btn-login" onclick="doPublicSearch()" id="public-search-btn" style="width: auto; padding: 0 28px; margin-top: 0; height: 46px;">Search</button>
@@ -2462,12 +2475,12 @@ async function doSetup() {
         <!-- Recent searches will be injected here -->
     </div>
 
-    <div id="public-search-results" style="display: none; background: rgba(255,255,255,0.98); border-radius: var(--radius); padding: 28px; text-align: left; box-shadow: 0 16px 40px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.2);">
+    <div id="public-search-results" style="display: none; background: var(--white); border-radius: var(--radius); padding: 28px; text-align: left; box-shadow: var(--shadow-lg); border: 1px solid var(--gray-200);">
        <!-- Results injected via JS -->
     </div>
     
     <div style="text-align: center; margin-top: 24px;">
-        <a href="?page=login" style="color: var(--navy-200); font-size: 13px; text-decoration: none; font-weight: 500;">&larr; Back to Login</a>
+        <a href="?page=login" style="color: var(--accent); font-size: 13px; text-decoration: none; font-weight: 500;">&larr; Back to Login</a>
     </div>
   </div>
 </div>
@@ -2802,9 +2815,9 @@ function escapeHtml(unsafe) {
         </div>
       </div>
 
-      <div id="wotd-container" style="display:none; margin-bottom:20px;"></div>
+      <div id="wotd-container" style="display:none; margin-bottom:16px;"></div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px" id="dash-charts">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px" id="dash-charts">
         <div class="card">
           <div class="card-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--accent)"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -2825,7 +2838,7 @@ function escapeHtml(unsafe) {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px" id="dash-lists">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px" id="dash-lists">
         <div class="card">
           <div class="card-header"><h3 style="display:flex;align-items:center;gap:6px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--accent)"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg> Most Opened Words</h3></div>
           <div class="card-body" id="most-opened-list" style="padding:0"></div>
@@ -3609,13 +3622,13 @@ async function loadDashboard() {
   const moEl = document.getElementById('most-opened-list');
   if (s.most_opened && s.most_opened.length > 0) {
     moEl.innerHTML = s.most_opened.map(w => `<div class="dash-list-item" style="cursor:pointer" onclick="location.href='?page=words&view_id=${w.id}'"><strong style="color:var(--navy-900)">${esc(w.term)}</strong> <span style="font-size:12px;color:var(--gray-500);background:var(--gray-100);padding:3px 10px;border-radius:12px;font-weight:600">${w.review_count||0} views</span></div>`).join('');
-  } else { moEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">No data yet</div>'; }
+  } else { moEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No data yet</div>'; }
 
   // Today learned list
   const tlEl = document.getElementById('today-learned-list');
   if (s.today_learned && s.today_learned.length > 0) {
     tlEl.innerHTML = s.today_learned.map(w => `<div class="dash-list-item"><strong style="color:var(--success)">${esc(w.term)}</strong> <span style="font-size:12px;color:var(--gray-400);font-weight:500">Mastered</span></div>`).join('');
-  } else { tlEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">No words mastered today</div>'; }
+  } else { tlEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No words mastered today</div>'; }
 
   // Recent words
   const rw = await apiGet('words_list');
@@ -3663,11 +3676,11 @@ function renderWOTD(w) {
   wc.innerHTML = `
     <div class="card" style="background: linear-gradient(135deg, var(--navy-900), var(--navy-700)); color: white; border: none; overflow:hidden; position:relative;">
       <div style="position:absolute; right:-20px; top:-20px; opacity:0.1;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="160" height="160"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
-      <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px; position:relative; z-index:10;">
+      <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; position:relative; z-index:10;">
         <div>
-          <div style="font-size:12px; color:var(--navy-200); text-transform:uppercase; font-weight:600; letter-spacing:1px; margin-bottom:8px; display:flex; align-items:center; gap:6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Word of the Day</div>
-          <div style="font-size:32px; font-weight:700; margin-bottom:4px; font-family:'Noto Sans', sans-serif;">${esc(w.term)}</div>
-          <div style="font-size:14.5px; color:var(--navy-100); max-width:600px; line-height:1.6;">${(w.definition || '').replace(/<[^>]+>/g, '') || '<em>No definition</em>'}</div>
+          <div style="font-size:11px; color:var(--navy-200); text-transform:uppercase; font-weight:600; letter-spacing:1px; margin-bottom:4px; display:flex; align-items:center; gap:6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Word of the Day</div>
+          <div style="font-size:28px; font-weight:700; margin-bottom:4px; font-family:'Noto Sans', sans-serif;">${esc(w.term)}</div>
+          <div style="font-size:14px; color:var(--navy-100); max-width:600px; line-height:1.5;">${(w.definition || '').replace(/<[^>]+>/g, '') || '<em>No definition</em>'}</div>
         </div>
         <div style="display:flex; gap:10px; align-items:center;">
           <button class="btn btn-icon" style="background:rgba(255,255,255,0.1); color:white; border:none;" onclick="refreshWOTD()" title="Get another word">
