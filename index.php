@@ -859,13 +859,41 @@ if (isset($_GET['api'])) {
             $others = array_slice($words, 1, 3);
             foreach ($others as $o) $choices[] = $o;
             shuffle($choices);
-            jsonResponse(['success' => true, 'question' => [
+            
+            $mode = rand(0, 1) ? 'term_to_def' : 'def_to_term';
+            $formattedChoices = [];
+            foreach ($choices as $c) {
+                if ($mode === 'term_to_def') {
+                    $formattedChoices[] = ['id' => $c['id'], 'text' => strip_tags($c['definition'] ?? 'No definition')];
+                } else {
+                    $formattedChoices[] = ['id' => $c['id'], 'text' => $c['term']];
+                }
+            }
+
+            jsonResponse(['success' => true, 'mode' => $mode, 'question' => [
                 'id' => $question['id'],
                 'term' => $question['term'],
-                'definition' => strip_tags($question['definition'] ?? ''),
-            ], 'choices' => array_map(fn($c) => ['id' => $c['id'], 'term' => $c['term']], $choices)]);
+                'definition' => strip_tags($question['definition'] ?? 'No definition'),
+            ], 'choices' => $formattedChoices]);
             break;
             
+        case 'quiz_save_score':
+            $score = intval($data['score'] ?? 0);
+            $settings = getSettings();
+            $current_high = intval($settings['quiz_high_score'] ?? 0);
+            if ($score > $current_high) {
+                $settings['quiz_high_score'] = (string)$score;
+                saveSettings($settings);
+                jsonResponse(['success' => true, 'high_score' => $score]);
+            }
+            jsonResponse(['success' => true, 'high_score' => $current_high]);
+            break;
+            
+        case 'quiz_high_score':
+            $settings = getSettings();
+            jsonResponse(['success' => true, 'high_score' => intval($settings['quiz_high_score'] ?? 0)]);
+            break;
+
         case 'random_word':
             $words = getWordsList();
             if (empty($words)) jsonResponse(['success' => false, 'message' => 'No words found']);
@@ -3003,7 +3031,7 @@ function escapeHtml(unsafe) {
     <div style="max-width:640px;margin:0 auto">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
         <div style="font-size:14px;color:var(--gray-500)">
-          Score: <strong id="quiz-score-display" style="color:var(--navy-700)">0 / 0</strong>
+          Score: <strong id="quiz-score-display" style="color:var(--navy-700)">0</strong>
           &nbsp;&bull;&nbsp; Streak: <strong id="quiz-streak" style="color:var(--accent)">0</strong>
           &nbsp;&bull;&nbsp; Best: <strong id="quiz-best" style="color:var(--gold)">0</strong>
         </div>
@@ -3350,28 +3378,6 @@ function escapeHtml(unsafe) {
   </div>
 </div>
 
-<!-- ======= DELETE CONFIRM MODAL ======= -->
-<div class="modal-overlay" id="delete-modal-overlay">
-  <div class="modal modal-sm">
-    <div class="modal-header">
-      <h3>Delete Word</h3>
-      <button class="modal-close" onclick="closeDeleteModal()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-    <div class="modal-body">
-      <p style="font-size:14px;color:var(--gray-600)">Are you sure you want to delete <strong id="delete-word-name"></strong>? This action cannot be undone.</p>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
-      <button class="btn btn-danger" onclick="confirmDelete()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-        Delete
-      </button>
-    </div>
-  </div>
-</div>
-
 <!-- ======= CATEGORY MODAL ======= -->
 <div class="modal-overlay" id="cat-modal-overlay">
   <div class="modal modal-sm">
@@ -3521,6 +3527,27 @@ function toast(msg, type = 'info') {
     t.classList.remove('show');
     setTimeout(() => t.remove(), 350);
   }, 3500);
+}
+
+function toastUndo(msg, undoCallback) {
+  const t = document.createElement('div');
+  t.className = `toast info`;
+  t.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+  <span style="flex:1">${msg}</span>
+  <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none;margin-left:10px" onclick="this.parentElement.undoFn()">Undo</button>`;
+  t.undoFn = () => {
+    undoCallback();
+    t.classList.remove('show');
+    setTimeout(() => t.remove(), 350);
+  };
+  document.getElementById('toast-container').appendChild(t);
+  requestAnimationFrame(() => { requestAnimationFrame(() => t.classList.add('show')); });
+  setTimeout(() => {
+    if (t.parentElement) {
+      t.classList.remove('show');
+      setTimeout(() => { if (t.parentElement) t.remove(); }, 350);
+    }
+  }, 5000); // Wait 5 seconds for undo
 }
 
 // ============================================================
@@ -3832,7 +3859,7 @@ function renderTable(words, total) {
           <button class="btn btn-icon btn-ghost" onclick="speakWord('${esc(w.term)}')" title="Listen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
           <button class="btn btn-icon btn-ghost" onclick="viewWord(${w.id})" title="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
           <button class="btn btn-icon btn-ghost" onclick="editWord(${w.id})" title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="btn btn-icon btn-danger" onclick="confirmDeleteWord(${w.id}, '${esc(w.term)}')" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
+          <button class="btn btn-icon btn-danger" onclick="deleteWordWithUndo(${w.id})" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
         </div>
       </td>
     </tr>
@@ -3858,7 +3885,7 @@ function wordCard(w) {
         <button class="btn btn-icon btn-ghost" onclick="editWord(${w.id})" title="Edit">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
-        <button class="btn btn-icon btn-danger" onclick="confirmDeleteWord(${w.id}, '${esc(w.term)}')" title="Delete">
+        <button class="btn btn-icon btn-danger" onclick="deleteWordWithUndo(${w.id})" title="Delete">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button>
       </div>
@@ -3940,17 +3967,17 @@ async function autoFetchDefinition() {
         const ph = entry.phonetics.find(p => p.text);
         if (ph) phonetic = ph.text;
     }
-    if (phonetic && !document.getElementById('word-pronunciation').value) document.getElementById('word-pronunciation').value = phonetic;
+    if (phonetic) document.getElementById('word-pronunciation').value = phonetic;
     if (entry.meanings && entry.meanings.length > 0) {
       const meaning = entry.meanings[0];
-      if (!document.getElementById('word-pos').value) document.getElementById('word-pos').value = meaning.partOfSpeech || '';
+      if (meaning.partOfSpeech) document.getElementById('word-pos').value = meaning.partOfSpeech;
       if (meaning.definitions && meaning.definitions.length > 0) {
         const def = meaning.definitions[0];
-        if (quillDef && (!quillDef.root.innerText.trim() || quillDef.root.innerText === '\n')) quillDef.root.innerHTML = `<p>${def.definition}</p>`;
-        if (quillEx && def.example && (!quillEx.root.innerText.trim() || quillEx.root.innerText === '\n')) quillEx.root.innerHTML = `<p>${def.example}</p>`;
+        if (quillDef) quillDef.root.innerHTML = `<p>${def.definition}</p>`;
+        if (quillEx && def.example) quillEx.root.innerHTML = `<p>${def.example}</p>`;
       }
     }
-    if (!document.getElementById('word-source').value) document.getElementById('word-source').value = 'Free Dictionary API';
+    document.getElementById('word-source').value = 'Free Dictionary API';
     toast('Definition auto-filled', 'success');
   } catch (e) {
     toast('Word not found in dictionary', 'error');
@@ -4153,26 +4180,36 @@ async function toggleMastered(id) {
 }
 
 // ---- DELETE ----
-function confirmDeleteWord(id, name) {
-  deleteWordId = id;
-  document.getElementById('delete-word-name').textContent = `"${name}"`;
-  document.getElementById('delete-modal-overlay').classList.add('active');
-}
-function closeDeleteModal() {
-  document.getElementById('delete-modal-overlay').classList.remove('active');
-  deleteWordId = null;
-}
-async function confirmDelete() {
-  if (!deleteWordId) return;
-  const r = await apiPost('word_delete', { id: deleteWordId });
-  if (r.success) {
-    toast('Word deleted', 'success');
-    closeDeleteModal();
-    loadWords();
-    loadWordCount();
-  } else {
-    toast('Delete failed', 'error');
-  }
+function deleteWordWithUndo(id) {
+  const wIndex = allWords.findIndex(w => w.id === id);
+  if (wIndex === -1) return;
+  const word = allWords[wIndex];
+  
+  allWords.splice(wIndex, 1);
+  const fwIndex = filteredWords.findIndex(w => w.id === id);
+  if (fwIndex !== -1) filteredWords.splice(fwIndex, 1);
+  
+  renderWords(filteredWords);
+  renderPagination(filteredWords.length);
+  
+  const tid = Date.now();
+  let undone = false;
+  toastUndo(`Word deleted`, () => {
+    undone = true;
+    clearTimeout(window[`delTimeout_${tid}`]);
+    allWords.splice(wIndex, 0, word);
+    if (fwIndex !== -1) filteredWords.splice(fwIndex, 0, word);
+    renderWords(filteredWords);
+    renderPagination(filteredWords.length);
+  });
+
+  window[`delTimeout_${tid}`] = setTimeout(async () => {
+    if (!undone) {
+      const r = await apiPost('word_delete', { id });
+      if (r.success) loadWordCount();
+    }
+    delete window[`delTimeout_${tid}`];
+  }, 5000);
 }
 
 // ---- BULK ACTIONS ----
@@ -4225,7 +4262,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closeWordModal();
     closeDetailModal();
-    closeDeleteModal();
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openAddWord(); }
 });
@@ -4408,12 +4444,19 @@ document.addEventListener('keydown', e => {
 // ============================================================
 <?php if ($page === 'quiz'): ?>
 let quizAnswer = null;
-let quizHighScore = localStorage.getItem('lexivault_high_score') || 0;
+let quizHighScore = 0;
+let quizInitialized = false;
+
 document.addEventListener('DOMContentLoaded', loadQuiz);
 async function loadQuiz() {
   const container = document.getElementById('quiz-container');
+  if (!quizInitialized) {
+    const rHS = await apiGet('quiz_high_score');
+    if (rHS.success) quizHighScore = rHS.high_score;
+    document.getElementById('quiz-best').textContent = quizHighScore;
+    quizInitialized = true;
+  }
   container.innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
-  document.getElementById('quiz-best').textContent = quizHighScore;
   const r = await apiGet('quiz_random');
   quizAnswer = null;
   if (!r.success) {
@@ -4421,30 +4464,67 @@ async function loadQuiz() {
     return;
   }
   quizAnswer = r.question.id;
+  const mode = r.mode;
+  const qText = mode === 'term_to_def' ? r.question.term : (r.question.definition || 'No definition');
+  const qPrompt = mode === 'term_to_def' ? 'Select the correct definition' : 'Select the correct word';
+  
   container.innerHTML = `
     <div class="quiz-card">
-      <div class="quiz-term">${esc(r.question.term)}</div>
-      <div class="quiz-prompt">Select the correct definition</div>
+      <div class="quiz-term" style="${mode === 'term_to_def' ? 'font-size:40px;' : 'font-size:22px;line-height:1.4;'}">${esc(qText)}</div>
+      <div class="quiz-prompt">${qPrompt}</div>
       <div class="quiz-choices" id="qchoices">
-        ${r.choices.map(c => `<button class="quiz-choice" onclick="answerQuiz(${c.id}, '${esc(c.term)}')" data-id="${c.id}">${esc(c.term)}</button>`).join('')}
+        ${r.choices.map(c => `<button class="quiz-choice" onclick="answerQuiz(${c.id})" data-id="${c.id}">${esc(c.text)}</button>`).join('')}
       </div>
       <div id="quiz-result" style="margin-bottom:12px;font-size:14px;min-height:24px;font-weight:500"></div>
       <button class="btn btn-primary" onclick="loadQuiz()" id="quiz-next-btn" style="display:none">Next Question</button>
     </div>`;
 }
-async function answerQuiz(chosenId, chosenTerm) {
+
+function playQuizSound(isCorrect) {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    if (isCorrect) {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } else {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(300, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.2);
+    }
+  } catch (e) {}
+}
+
+async function answerQuiz(chosenId) {
   if (!quizAnswer) return;
   quizTotal++;
   const correct = chosenId === quizAnswer;
+  playQuizSound(correct);
   if (correct) { 
-    quizScore++; quizStreak++; 
+    quizScore += 20; quizStreak++; 
     if (quizScore > quizHighScore) {
       quizHighScore = quizScore;
-      localStorage.setItem('lexivault_high_score', quizHighScore);
       document.getElementById('quiz-best').textContent = quizHighScore;
+      apiPost('quiz_save_score', { score: quizHighScore });
     }
   } else { quizStreak = 0; }
-  document.getElementById('quiz-score-display').textContent = `${quizScore} / ${quizTotal}`;
+  document.getElementById('quiz-score-display').textContent = `${quizScore}`;
   document.getElementById('quiz-streak').textContent = quizStreak;
   const buttons = document.querySelectorAll('.quiz-choice');
   buttons.forEach(btn => {
@@ -4454,7 +4534,7 @@ async function answerQuiz(chosenId, chosenTerm) {
   });
   const res = document.getElementById('quiz-result');
   res.style.color = correct ? 'var(--success)' : 'var(--danger)';
-  res.textContent = correct ? 'Correct!' : `Incorrect. The answer is highlighted above.`;
+  res.textContent = correct ? '+20 Points! Correct!' : `Incorrect. The answer is highlighted above.`;
   document.getElementById('quiz-next-btn').style.display = 'inline-flex';
   if (correct) await apiPost('word_increment_review', { id: quizAnswer });
 }
