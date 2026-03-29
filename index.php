@@ -683,8 +683,8 @@ if (isset($_GET['api'])) {
             }
             // Per day (start from today or oldest entry up to 30 days)
             $daily = [];
-            $today = date('Y-m-d');
-            $minDate = $today;
+            $todayDate = date('Y-m-d');
+            $minDate = $todayDate;
             foreach ($words as $w) {
                 $d = $w['date_tag'] ?? '';
                 if ($d && $d < $minDate) {
@@ -696,7 +696,7 @@ if (isset($_GET['api'])) {
                 $minDate = $thirtyDaysAgo;
             }
             $current = $minDate;
-            while ($current <= $today) {
+            while ($current <= $todayDate) {
                 $daily[$current] = 0;
                 $current = date('Y-m-d', strtotime($current . ' +1 day'));
             }
@@ -2217,7 +2217,7 @@ body {
   .words-grid { grid-template-columns: 1fr; }
   .quiz-choices { grid-template-columns: 1fr; }
   .login-panel { padding: 40px 24px; }
-}
+  #dash-charts, #dash-lists { grid-template-columns: 1fr; }}
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .filter-bar { flex-direction: column; gap: 10px; padding: 12px; }
@@ -2331,6 +2331,8 @@ body {
 }
 .dash-list-item:hover { background: rgba(0,0,0,0.02); }
 .dash-list-item:last-child { border-bottom: none; }
+#dash-charts, #dash-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+
 </style>
 <style>
 /* Additional styles for new features */
@@ -2859,7 +2861,7 @@ function escapeHtml(unsafe) {
 
       <div id="wotd-container" style="display:none; margin-bottom:16px;"></div>
 
-      <div style="display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px" id="dash-charts">
+      <div id="dash-charts">
         <div class="card">
           <div class="card-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--accent)"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -2880,7 +2882,7 @@ function escapeHtml(unsafe) {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px" id="dash-lists">
+      <div id="dash-lists">
         <div class="card">
           <div class="card-header"><h3 style="display:flex;align-items:center;gap:6px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--accent)"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg> Most Opened Words</h3></div>
           <div class="card-body" id="most-opened-list" style="padding:0"></div>
