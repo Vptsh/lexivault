@@ -241,7 +241,8 @@ function sendDigestEmail($settings, $words) {
         $todayWords = array_slice(array_reverse($words), 0, 10);
     }
     $subject = "[LexiVault] Daily Word Digest - " . date('F j, Y');
-    $body = "<!DOCTYPE html><html><body style='font-family:Georgia,serif;max-width:600px;margin:0 auto;background:#f4f7ff;padding:20px'>";
+    $body = "<!DOCTYPE html><html><head><link href='https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;1,400&display=swap' rel='stylesheet'></head>";
+    $body .= "<body style=\"font-family:'Noto Sans', Arial, sans-serif;max-width:600px;margin:0 auto;background:#f4f7ff;padding:20px\">";
     $body .= "<div style='background:#0d2137;padding:30px;border-radius:8px 8px 0 0;text-align:center'>";
     $body .= "<h1 style='color:#fff;margin:0;font-size:24px'>LexiVault Daily Digest</h1>";
     $body .= "<p style='color:#7fa8d4;margin:8px 0 0'>" . date('l, F j, Y') . "</p></div>";
@@ -249,8 +250,16 @@ function sendDigestEmail($settings, $words) {
     $body .= "<p style='color:#333;font-size:16px'>Here are your words for today:</p>";
     foreach ($todayWords as $w) {
         $body .= "<div style='border-left:4px solid #1a5276;padding:15px 20px;margin:15px 0;background:#f8faff;border-radius:0 6px 6px 0'>";
-        $body .= "<h3 style='color:#0d2137;margin:0 0 6px;font-size:18px'>" . htmlspecialchars($w['term']) . "</h3>";
+        $termDisplay = htmlspecialchars($w['term']);
+        if (!empty($w['pronunciation'])) $termDisplay .= " <span style='color:#666;font-size:14px;font-weight:normal;font-style:italic'>" . htmlspecialchars($w['pronunciation']) . "</span>";
+        $body .= "<h3 style='color:#0d2137;margin:0 0 6px;font-size:18px'>{$termDisplay}</h3>";
         $body .= "<p style='color:#666;margin:0;font-size:14px'>" . strip_tags($w['definition'] ?? '') . "</p>";
+        if (!empty($w['example'])) {
+            $body .= "<p style='color:#4a8fd4;margin:8px 0 0;font-size:13px;font-style:italic'>\"" . strip_tags($w['example']) . "\"</p>";
+        }
+        if (!empty($w['notes'])) {
+            $body .= "<p style='color:#888;margin:8px 0 0;font-size:12px'><strong>Notes:</strong> " . htmlspecialchars($w['notes']) . "</p>";
+        }
         if (!empty($w['category_name'])) {
             $body .= "<span style='display:inline-block;background:#1a5276;color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;margin-top:8px'>" . htmlspecialchars($w['category_name']) . "</span>";
         }
@@ -266,7 +275,73 @@ function sendDigestEmail($settings, $words) {
         'X-Mailer: PHP/' . phpversion()
     ];
 
-    // Try PHPMailer-style SMTP if available, else fallback to mail()
+    // Native SMTP Implementation
+    if (!empty($settings['smtp_user']) && !empty($settings['smtp_pass'])) {
+        try {
+            $host = $settings['smtp_host'];
+            $port = $settings['smtp_port'] ?? 587;
+            
+            // Handle implicit SSL (Port 465)
+            $connHost = ($port == 465 && strpos($host, 'ssl://') === false) ? 'ssl://' . $host : $host;
+            
+            $socket = @fsockopen($connHost, $port, $errno, $errstr, 15);
+            if ($socket) {
+                stream_set_timeout($socket, 15);
+                fread($socket, 256);
+                
+                $heloHost = preg_replace('/^ssl:\/\//', '', $host);
+                fwrite($socket, "EHLO {$heloHost}\r\n");
+                $res = fread($socket, 1024);
+
+                // Handle STARTTLS for port 587
+                if ($port == 587 && strpos($res, 'STARTTLS') !== false) {
+                    fwrite($socket, "STARTTLS\r\n");
+                    fread($socket, 256);
+                    stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+                    fwrite($socket, "EHLO {$heloHost}\r\n");
+                    fread($socket, 1024);
+                }
+
+                fwrite($socket, "AUTH LOGIN\r\n");
+                fread($socket, 256);
+                fwrite($socket, base64_encode($settings['smtp_user']) . "\r\n");
+                fread($socket, 256);
+                fwrite($socket, base64_encode($settings['smtp_pass']) . "\r\n");
+                $res = fread($socket, 256);
+
+                if (substr($res, 0, 3) === '235') {
+                    fwrite($socket, "MAIL FROM:<{$settings['smtp_from']}>\r\n");
+                    fread($socket, 256);
+                    fwrite($socket, "RCPT TO:<{$settings['digest_email']}>\r\n");
+                    fread($socket, 256);
+                    fwrite($socket, "DATA\r\n");
+                    fread($socket, 256);
+
+                    $message = "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
+                    $message .= "To: {$settings['digest_email']}\r\n";
+                    $message .= implode("\r\n", $headers) . "\r\n\r\n";
+                    $message .= $body . "\r\n.\r\n";
+
+                    fwrite($socket, $message);
+                    $res = fread($socket, 256);
+
+                    fwrite($socket, "QUIT\r\n");
+                    fclose($socket);
+
+                    if (substr($res, 0, 3) === '250') {
+                        return true;
+                    }
+                } else {
+                    fwrite($socket, "QUIT\r\n");
+                    fclose($socket);
+                }
+            }
+        } catch (Exception $e) {
+            // Fallback to mail()
+        }
+    }
+
+    // Fallback to mail()
     if (function_exists('mail')) {
         return mail($settings['digest_email'], $subject, $body, implode("\r\n", $headers));
     }
