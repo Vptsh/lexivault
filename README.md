@@ -17,7 +17,7 @@ LexiVault isn't just a list of words; it's a complete learning ecosystem:
     *   **Quiz Mode:** Test your knowledge with dynamically generated multiple-choice quizzes to build your learning streak.
 *   **📊 Dynamic Dashboard:** Get deep insights into your vocabulary growth with beautiful charts tracking words added per day, category distributions, and your "Word of the Day".
 *   **🔊 Text-to-Speech (TTS):** Built-in browser TTS allows you to hear the pronunciation of any word in your vault with a single click.
-*   **🌍 Public API Endpoint:** Seamlessly access your vocabulary from other apps or websites using the built-in, lightning-fast fuzzy-search API (`?pbw=word`).
+*   **🌍 Public Access:** Includes a sleek public-facing search page (with autocomplete and history) and a developer-friendly JSON API endpoint.
 *   **✉️ Daily Email Digests:** Setup SMTP to receive automated daily emails summarizing your newly added words to reinforce memory.
 *   **🔄 Universal Import/Export:** Never lose your data. Export your vault as JSON, CSV, or SQL backups, and import existing JSON word lists effortlessly.
 *   **🗂️ Advanced Organization:** Group words by Category, tag them with multiple tags, set difficulty levels, and mark your absolute favorites with a Star.
@@ -38,9 +38,22 @@ Getting LexiVault running takes less than 2 minutes.
 
 ---
 
-## 📡 Public API Integration
+## 📡 Public Access
 
-LexiVault provides a public, CORS-enabled endpoint so you can fetch your words remotely without authentication.
+LexiVault offers two ways for public, unauthenticated access to your dictionary.
+
+### Public Dictionary Page
+
+A dedicated, beautifully designed search page allows anyone to look up words in your public vault.
+*   **URL:** `http://yourdomain.com/lexivault/?page=public_search`
+*   **Features:**
+    *   Modern, responsive interface that matches the application's theme.
+    *   Live autocomplete suggestions as you type.
+    *   "Recent Searches" history saved in the user's browser for convenience.
+
+### Public API Endpoint
+
+For developers, a public, CORS-enabled endpoint is available to fetch your words remotely.
 
 **Endpoint:**
 `GET /index.php?pbw={YOUR_SEARCH_TERM}&format=json`
