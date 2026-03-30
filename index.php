@@ -4443,7 +4443,7 @@ async function markReviewMastered(e) {
   const r = await apiPost('word_toggle_mastered', { id: reviewWords[reviewIndex].id });
   if (r.success) {
     reviewWords[reviewIndex].mastered = r.mastered;
-    showToast(r.mastered ? 'Word mastered!' : 'Mastery removed.');
+    toast(r.mastered ? 'Word mastered!' : 'Mastery removed.', 'success');
     showReviewCard();
   }
 }
