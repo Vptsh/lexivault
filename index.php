@@ -80,7 +80,7 @@ if (isset($_GET['api']) && $_GET['api'] === 'setup') {
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password VARCHAR(255), name VARCHAR(100), email VARCHAR(100), created_at DATETIME, last_login DATETIME)");
         $pdo->exec("CREATE TABLE IF NOT EXISTS categories (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), description TEXT, color VARCHAR(20))");
-        $pdo->exec("CREATE TABLE IF NOT EXISTS words (id INT AUTO_INCREMENT PRIMARY KEY, term VARCHAR(255), definition TEXT, pronunciation VARCHAR(100), part_of_speech VARCHAR(50), example TEXT, notes TEXT, category_id INT, category_name VARCHAR(100), tags TEXT, difficulty VARCHAR(20), source VARCHAR(100), date_tag DATE, created_at DATETIME, updated_at DATETIME, last_reviewed DATETIME, review_count INT DEFAULT 0, mastered TINYINT(1) DEFAULT 0, starred TINYINT(1) DEFAULT 0)");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS words (id INT AUTO_INCREMENT PRIMARY KEY, term VARCHAR(255), definition TEXT, pronunciation VARCHAR(100), part_of_speech VARCHAR(50), notes TEXT, category_id INT, category_name VARCHAR(100), tags TEXT, difficulty VARCHAR(20), source VARCHAR(100), date_tag DATE, created_at DATETIME, updated_at DATETIME, last_reviewed DATETIME, review_count INT DEFAULT 0, mastered TINYINT(1) DEFAULT 0, starred TINYINT(1) DEFAULT 0)");
         $pdo->exec("CREATE TABLE IF NOT EXISTS settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
 
         $hash = password_hash($adminPass, PASSWORD_BCRYPT);
@@ -135,6 +135,14 @@ function saveSettings($s) {
     $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)");
     foreach($s as $k=>$v) { if (is_bool($v)) $v = $v ? 'true' : 'false'; $stmt->execute([$k, (string)$v]); }
 }
+// Apply User Timezone globally right away to fix all date/time and chart bugs
+if ($isSetup) {
+    try {
+        $appSettings = getSettings();
+        if (!empty($appSettings['timezone'])) date_default_timezone_set($appSettings['timezone']);
+        else date_default_timezone_set('UTC');
+    } catch (Exception $e) {}
+}
 function getUsers() {
     return db()->query("SELECT * FROM users")->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -180,13 +188,13 @@ function saveWordObj($w) {
     $db = db(); $tags = json_encode($w['tags'] ?? []);
     $m = empty($w['mastered']) ? 0 : 1; $s = empty($w['starred']) ? 0 : 1; $rc = (int)($w['review_count'] ?? 0);
     if (!empty($w['id'])) {
-        $db->prepare("UPDATE words SET term=?, definition=?, pronunciation=?, part_of_speech=?, example=?, notes=?, category_id=?, category_name=?, tags=?, difficulty=?, source=?, updated_at=?, review_count=?, mastered=?, starred=?, last_reviewed=? WHERE id=?")->execute([
-            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['example']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', date('Y-m-d H:i:s'), $rc, $m, $s, $w['last_reviewed']??null, $w['id']
+        $db->prepare("UPDATE words SET term=?, definition=?, pronunciation=?, part_of_speech=?, notes=?, category_id=?, category_name=?, tags=?, difficulty=?, source=?, updated_at=?, review_count=?, mastered=?, starred=?, last_reviewed=? WHERE id=?")->execute([
+            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', date('Y-m-d H:i:s'), $rc, $m, $s, $w['last_reviewed']??null, $w['id']
         ]);
         return $w;
     } else {
-        $db->prepare("INSERT INTO words (term, definition, pronunciation, part_of_speech, example, notes, category_id, category_name, tags, difficulty, source, date_tag, created_at, updated_at, review_count, mastered, starred) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")->execute([
-            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['example']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', $w['date_tag']??date('Y-m-d'), $w['created_at']??date('Y-m-d H:i:s'), date('Y-m-d H:i:s'), $rc, $m, $s
+        $db->prepare("INSERT INTO words (term, definition, pronunciation, part_of_speech, notes, category_id, category_name, tags, difficulty, source, date_tag, created_at, updated_at, review_count, mastered, starred) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")->execute([
+            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', $w['date_tag']??date('Y-m-d'), $w['created_at']??date('Y-m-d H:i:s'), date('Y-m-d H:i:s'), $rc, $m, $s
         ]);
         $w['id'] = $db->lastInsertId(); return $w;
     }
@@ -247,9 +255,6 @@ function sendDigestEmail($settings, $words) {
         if (!empty($w['pronunciation'])) $termDisplay .= " <span style='color:#666;font-size:14px;font-weight:normal;font-style:italic'>" . htmlspecialchars($w['pronunciation']) . "</span>";
         $body .= "<h3 style='color:#0d2137;margin:0 0 6px;font-size:18px'><a href='{$wordUrl}' style='color: #0d2137; text-decoration: none;'>{$termDisplay}</a></h3>";
         $body .= "<p style='color:#666;margin:0;font-size:14px'>" . strip_tags($w['definition'] ?? '') . "</p>";
-        if (!empty($w['example'])) {
-            $body .= "<p style='color:#4a8fd4;margin:8px 0 0;font-size:13px;font-style:italic'>\"" . strip_tags($w['example']) . "\"</p>";
-        }
         if (!empty($w['notes'])) {
             $body .= "<p style='color:#888;margin:8px 0 0;font-size:12px'><strong>Notes:</strong> " . htmlspecialchars($w['notes']) . "</p>";
         }
@@ -382,14 +387,13 @@ if (isset($_GET['pbw'])) {
         if ($w) {
             if ($format === 'json') {
                 header('Content-Type: application/json; charset=UTF-8');
-                echo json_encode(['success' => true, 'word' => ['term' => $w['term'], 'pronunciation' => $w['pronunciation'] ?? '', 'part_of_speech' => $w['part_of_speech'] ?? '', 'definition' => strip_tags($w['definition'] ?? ''), 'example' => strip_tags($w['example'] ?? '')]]);
+                echo json_encode(['success' => true, 'word' => ['term' => $w['term'], 'pronunciation' => $w['pronunciation'] ?? '', 'part_of_speech' => $w['part_of_speech'] ?? '', 'definition' => strip_tags($w['definition'] ?? '')]]);
             } else {
                 header('Content-Type: text/plain; charset=UTF-8');
                 echo "Word: " . $w['term'] . "\n";
                 if (!empty($w['pronunciation'])) echo "Pronunciation: " . $w['pronunciation'] . "\n";
                 if (!empty($w['part_of_speech'])) echo "Type: " . $w['part_of_speech'] . "\n";
                 echo "Definition: " . strip_tags($w['definition'] ?? '') . "\n";
-                if (!empty($w['example'])) echo "Example: " . strip_tags($w['example'] ?? '') . "\n";
             }
         } else {
             if ($format === 'json') {
@@ -506,7 +510,6 @@ if (isset($_GET['api'])) {
                 'definition' => $data['definition'] ?? '',
                 'pronunciation' => sanitize($data['pronunciation'] ?? ''),
                 'part_of_speech' => sanitize($data['part_of_speech'] ?? ''),
-                'example' => $data['example'] ?? '',
                 'notes' => $data['notes'] ?? '',
                 'category_id' => (int)($data['category_id'] ?? 0),
                 'category_name' => $catMap[intval($data['category_id'] ?? 0)] ?? 'Uncategorized',
@@ -656,25 +659,22 @@ if (isset($_GET['api'])) {
                 $cname = $catMap[$cid] ?? 'Uncategorized';
                 $catCounts[$cname] = ($catCounts[$cname] ?? 0) + 1;
             }
-            // Per day (start from today or oldest entry up to 30 days)
-            $daily = [];
-            $todayDate = date('Y-m-d');
-            $minDate = $todayDate;
-            foreach ($words as $w) {
-                $d = $w['date_tag'] ?? '';
-                if ($d && $d < $minDate) {
-                    $minDate = $d;
-                }
-            }
-            $thirtyDaysAgo = date('Y-m-d', strtotime('-29 days'));
-            if ($minDate < $thirtyDaysAgo) {
-                $minDate = $thirtyDaysAgo;
-            }
-            $current = $minDate;
-            while ($current <= $todayDate) {
-                $daily[$current] = 0;
-                $current = date('Y-m-d', strtotime($current . ' +1 day'));
-            }
+    
+    // Strict Timezone Enforcement for Chart Accuracy
+    $tz = getSettings()['timezone'] ?? 'UTC';
+    date_default_timezone_set($tz);
+    
+    // Per day (Strictly rolling 30 days ending today)
+    $daily = [];
+    $todayDate = date('Y-m-d');
+    
+    $dt = new DateTime($todayDate);
+    $dt->modify('-29 days'); // Exactly 30 days inclusive
+    
+    for ($i = 0; $i < 30; $i++) {
+        $daily[$dt->format('Y-m-d')] = 0;
+        $dt->modify('+1 day');
+    }
             foreach ($words as $w) {
                 $d = $w['date_tag'] ?? '';
                 if (isset($daily[$d])) $daily[$d]++;
@@ -682,9 +682,9 @@ if (isset($_GET['api'])) {
             // Dashboard features
             $most_opened = $words;
             usort($most_opened, fn($a,$b) => ($b['review_count'] ?? 0) <=> ($a['review_count'] ?? 0));
-            $most_opened = array_slice($most_opened, 0, 8);
+                        $most_opened = array_slice($most_opened, 0, 5);
 
-            $today_learned = array_filter($words, fn($w) => ($w['mastered'] ?? false) && substr($w['last_reviewed'] ?? $w['updated_at'] ?? '', 0, 10) === date('Y-m-d'));
+            $today_learned = array_filter($words, fn($w) => ($w['mastered'] ?? false) && ($w['last_reviewed'] ?? $w['updated_at'] ?? '') >= date('Y-m-d', strtotime('-7 days')));
             usort($today_learned, fn($a,$b) => strcmp($b['updated_at'] ?? '', $a['updated_at'] ?? ''));
 
             $wotd = null;
@@ -698,7 +698,8 @@ if (isset($_GET['api'])) {
                 'total' => $total, 'mastered' => $mastered, 'starred' => $starred,
                 'today' => $today, 'week' => $week, 'categories' => $catCounts, 'daily' => $daily,
                 'most_opened' => $most_opened, 'today_learned' => array_values($today_learned),
-                'wotd' => $wotd
+                'wotd' => $wotd,
+                'server_today' => $todayDate
             ]]);
             break;
 
@@ -836,50 +837,6 @@ if (isset($_GET['api'])) {
                 }
             }
             jsonResponse(['success' => false]);
-            break;
-
-        case 'quiz_random':
-            $words = getWordsList();
-            if (count($words) < 4) jsonResponse(['success' => false, 'message' => 'Need at least 4 words for quiz']);
-            shuffle($words);
-            $question = $words[0];
-            $choices = [$question];
-            $others = array_slice($words, 1, 3);
-            foreach ($others as $o) $choices[] = $o;
-            shuffle($choices);
-            
-            $mode = rand(0, 1) ? 'term_to_def' : 'def_to_term';
-            $formattedChoices = [];
-            foreach ($choices as $c) {
-                if ($mode === 'term_to_def') {
-                    $formattedChoices[] = ['id' => $c['id'], 'text' => strip_tags($c['definition'] ?? 'No definition')];
-                } else {
-                    $formattedChoices[] = ['id' => $c['id'], 'text' => $c['term']];
-                }
-            }
-
-            jsonResponse(['success' => true, 'mode' => $mode, 'question' => [
-                'id' => $question['id'],
-                'term' => $question['term'],
-                'definition' => strip_tags($question['definition'] ?? 'No definition'),
-            ], 'choices' => $formattedChoices]);
-            break;
-            
-        case 'quiz_save_score':
-            $score = intval($data['score'] ?? 0);
-            $settings = getSettings();
-            $current_high = intval($settings['quiz_high_score'] ?? 0);
-            if ($score > $current_high) {
-                $settings['quiz_high_score'] = (string)$score;
-                saveSettings($settings);
-                jsonResponse(['success' => true, 'high_score' => $score]);
-            }
-            jsonResponse(['success' => true, 'high_score' => $current_high]);
-            break;
-            
-        case 'quiz_high_score':
-            $settings = getSettings();
-            jsonResponse(['success' => true, 'high_score' => intval($settings['quiz_high_score'] ?? 0)]);
             break;
 
         case 'random_word':
@@ -1418,45 +1375,45 @@ body {
 /* ---- STATS CARDS ---- */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
 }
 .stat-card {
   background: var(--glass-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: var(--radius);
-  padding: 16px 20px;
+  padding: 20px;
   box-shadow: var(--shadow-sm);
   border: var(--glass-border);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   transition: var(--transition);
 }
-.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.stat-card:hover { transform: translateY(-3px); box-shadow: var(--shadow); border-color: rgba(255,255,255,0.9); }
 .stat-icon {
-  width: 42px; height: 42px;
-  border-radius: 10px;
+  width: 48px; height: 48px;
+  border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.stat-icon.blue { background: rgba(46,125,209,0.1); color: var(--accent); }
-.stat-icon.green { background: rgba(26,124,92,0.1); color: var(--success); }
+.stat-icon.blue { background: var(--navy-50); color: var(--accent); }
+.stat-icon.green { background: var(--success-light); color: var(--success); }
 .stat-icon.gold { background: rgba(201,162,39,0.1); color: var(--gold); }
 .stat-icon.navy { background: rgba(13,31,53,0.07); color: var(--navy-600); }
-.stat-icon svg { width: 20px; height: 20px; }
+.stat-icon svg { width: 22px; height: 22px; }
 .stat-info .stat-value {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 700;
   color: var(--navy-900);
   line-height: 1;
 }
 .stat-info .stat-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--gray-500);
-  margin-top: 4px;
+  margin-top: 5px;
   font-weight: 500;
 }
 
@@ -1464,46 +1421,48 @@ body {
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 18px;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
   border-radius: var(--radius-sm);
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   transition: var(--transition);
   font-family: inherit;
   text-decoration: none;
   white-space: nowrap;
 }
-.btn svg { width: 15px; height: 15px; }
+.btn svg { width: 16px; height: 16px; }
 .btn-primary {
   background: var(--accent);
   color: white;
+  border-color: var(--accent);
 }
-.btn-primary:hover { background: var(--accent-light); box-shadow: 0 4px 12px rgba(46,125,209,0.3); }
+.btn-primary:hover { background: var(--accent-light); border-color: var(--accent-light); box-shadow: 0 4px 12px rgba(46,125,209,0.25); transform: translateY(-1px); }
 .btn-secondary {
-  background: var(--gray-100);
+  background: var(--white);
   color: var(--gray-700);
   border: 1px solid var(--gray-200);
 }
-.btn-secondary:hover { background: var(--gray-200); }
-.btn-danger { background: var(--danger-light); color: var(--danger); }
-.btn-danger:hover { background: var(--danger); color: white; }
-.btn-success { background: var(--success-light); color: var(--success); }
-.btn-success:hover { background: var(--success); color: white; }
-.btn-ghost { background: transparent; color: var(--gray-600); }
+.btn-secondary:hover { background: var(--gray-50); border-color: var(--gray-300); }
+.btn-danger { background: var(--danger); color: white; border-color: var(--danger); }
+.btn-danger:hover { opacity: 0.9; box-shadow: 0 4px 12px rgba(192,57,43,0.25); }
+.btn-success { background: var(--success); color: white; border-color: var(--success); }
+.btn-success:hover { opacity: 0.9; box-shadow: 0 4px 12px rgba(26,124,92,0.2); }
+.btn-ghost { background: transparent; color: var(--gray-600); border-color: transparent; }
 .btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
-.btn-sm { padding: 5px 12px; font-size: 12.5px; }
+.btn-sm { padding: 6px 14px; font-size: 13px; }
 .btn-icon {
-  width: 34px; height: 34px;
+  width: 38px; height: 38px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
 }
-.btn-icon svg { width: 15px; height: 15px; }
+.btn-icon svg { width: 17px; height: 17px; }
 
 /* ---- SEARCH & FILTER BAR ---- */
 .filter-bar {
@@ -1512,46 +1471,49 @@ body {
   -webkit-backdrop-filter: blur(16px);
   border: var(--glass-border);
   border-radius: var(--radius);
-  padding: 12px 16px;
-  margin-bottom: 20px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
   align-items: center;
   box-shadow: var(--glass-shadow);
 }
 .search-input-wrap {
   flex: 1;
-  min-width: 200px;
+  min-width: 220px;
   position: relative;
 }
 .search-input-wrap svg {
   position: absolute;
-  left: 12px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   color: var(--gray-400);
+  transition: var(--transition);
 }
+.search-input-wrap:focus-within svg { color: var(--accent); }
 .search-input {
   width: 100%;
-  padding: 9px 12px 9px 36px;
-  border: 1px solid var(--gray-200);
+  padding: 10px 14px 10px 42px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  font-size: 13.5px;
+  font-size: 14px;
   font-family: inherit;
   outline: none;
   transition: var(--transition);
   color: var(--gray-800);
   background: var(--gray-50);
 }
-.search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(46,125,209,0.1); background: white; }
+.search-input:hover { background: var(--gray-100); }
+.search-input:focus { border-color: var(--accent); background: white; box-shadow: 0 0 0 3px rgba(46,125,209,0.1); }
 .filter-select {
-  padding: 9px 12px;
-  border: 1px solid var(--gray-200);
+  padding: 10px 14px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  font-size: 13.5px;
+  font-size: 14px;
   font-family: inherit;
   outline: none;
   color: var(--gray-700);
@@ -1559,13 +1521,14 @@ body {
   cursor: pointer;
   transition: var(--transition);
 }
+.filter-select:hover { background: var(--gray-100); }
 .filter-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(46,125,209,0.1); }
 
 /* ---- WORD CARDS GRID ---- */
 .words-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
 }
 .word-card {
   background: var(--glass-bg);
@@ -1573,32 +1536,32 @@ body {
   -webkit-backdrop-filter: blur(16px);
   border: var(--glass-border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 24px;
   box-shadow: var(--shadow-sm);
   transition: var(--transition);
   position: relative;
   display: flex;
   flex-direction: column;
 }
-.word-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--gray-200); }
+.word-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: rgba(255,255,255,0.9); }
 .word-card-header {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 .word-term {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 700;
   color: var(--navy-900);
   flex: 1;
-  line-height: 1.2;
+  line-height: 1.3;
 }
 .word-pos {
   font-style: italic;
   color: var(--gray-500);
-  font-size: 12px;
-  margin-top: 2px;
+  font-size: 13px;
+  margin-top: 3px;
 }
 .word-card-actions {
   display: flex;
@@ -1606,9 +1569,9 @@ body {
   flex-shrink: 0;
 }
 .word-definition {
-  color: var(--gray-600);
-  font-size: 13.5px;
-  line-height: 1.6;
+  color: var(--gray-700);
+  font-size: 14px;
+  line-height: 1.7;
   flex: 1;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -1620,32 +1583,32 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
   border-top: 1px solid var(--gray-100);
   flex-wrap: wrap;
 }
 .word-cat-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
+  gap: 5px;
+  padding: 4px 12px;
   border-radius: 20px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
   background: var(--navy-50);
   color: var(--navy-700);
 }
 .word-date-badge {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--gray-400);
   margin-left: auto;
 }
 .word-difficulty {
-  font-size: 11px;
-  padding: 2px 8px;
+  font-size: 12px;
+  padding: 3px 10px;
   border-radius: 20px;
-  font-weight: 500;
+  font-weight: 600;
 }
 .diff-easy { background: var(--success-light); color: var(--success); }
 .diff-medium { background: var(--warning-light); color: var(--warning); }
@@ -1656,34 +1619,33 @@ body {
   cursor: pointer;
   color: var(--gray-300);
   transition: var(--transition);
-  padding: 4px;
+  padding: 6px;
   display: flex;
 }
 .word-star-btn.starred { color: var(--gold); }
-.word-star-btn:hover { transform: scale(1.2); }
+.word-star-btn:hover { transform: scale(1.2); color: var(--gold); }
 .mastered-badge {
   background: var(--success-light);
   color: var(--success);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 4px 10px;
   border-radius: 20px;
   letter-spacing: 0.5px;
-  text-transform: uppercase;
 }
 .tags-row {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 .tag-chip {
   display: inline-block;
-  background: var(--navy-50);
-  color: var(--navy-600);
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
   font-weight: 500;
 }
 
@@ -1756,6 +1718,7 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* ---- FORM ---- */
@@ -1931,90 +1894,6 @@ body {
 .empty-state h4 { font-size: 17px; color: var(--gray-600); margin-bottom: 6px; font-weight: 600; }
 .empty-state p { font-size: 13.5px; }
 
-/* ---- TOAST ---- */
-#toast-container {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-}
-.toast {
-  background: var(--navy-900);
-  color: white;
-  padding: 12px 18px;
-  border-radius: 8px;
-  font-size: 13.5px;
-  box-shadow: var(--shadow-lg);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 260px;
-  max-width: 380px;
-  transform: translateX(100px);
-  opacity: 0;
-  transition: all 0.3s ease;
-  pointer-events: all;
-}
-.toast.show { transform: translateX(0); opacity: 1; }
-.toast.success { border-left: 4px solid #27ae60; }
-.toast.error { border-left: 4px solid var(--danger); }
-.toast.info { border-left: 4px solid var(--accent); }
-.toast svg { width: 16px; height: 16px; flex-shrink: 0; }
-
-/* ---- QUIZ ---- */
-.quiz-card {
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-radius: var(--radius);
-  padding: 40px;
-  text-align: center;
-  box-shadow: var(--shadow);
-  border: var(--glass-border);
-  max-width: 600px;
-  margin: 0 auto;
-}
-.quiz-term {
-  font-size: 40px;
-  font-weight: 600;
-  color: var(--navy-900);
-  margin-bottom: 10px;
-}
-.quiz-prompt {
-  color: var(--gray-500);
-  font-size: 14px;
-  margin-bottom: 30px;
-}
-.quiz-choices {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-.quiz-choice {
-  padding: 14px;
-  border: 2px solid var(--gray-200);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: var(--transition);
-  font-size: 14px;
-  color: var(--gray-700);
-  background: var(--white);
-  font-family: inherit;
-  font-weight: 500;
-}
-.quiz-choice:hover { border-color: var(--accent); background: var(--navy-50); color: var(--navy-700); }
-.quiz-choice.correct { border-color: var(--success); background: var(--success-light); color: var(--success); }
-.quiz-choice.wrong { border-color: var(--danger); background: var(--danger-light); color: var(--danger); }
-.quiz-score {
-  font-size: 22px;
-  color: var(--navy-700);
-  margin-bottom: 8px;
-}
 
 /* ---- SETTINGS ---- */
 .settings-section {
@@ -2091,7 +1970,7 @@ body {
   gap: 12px;
   font-size: 13px;
 }
-.chart-bar-label { width: 120px; color: var(--gray-600); font-weight: 500; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-bar-label { width: 130px; flex-shrink: 0; color: var(--gray-600); font-weight: 500; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chart-bar-track {
   flex: 1;
   height: 10px;
@@ -2105,7 +1984,20 @@ body {
   background: linear-gradient(90deg, var(--navy-500), var(--accent));
   transition: width 0.6s ease;
 }
-.chart-bar-count { color: var(--gray-500); min-width: 30px; font-size: 12px; }
+.chart-bar-count { color: var(--gray-500); width: 35px; flex-shrink: 0; text-align: right; font-size: 12px; font-weight: 600; }
+
+/* ---- DAILY CHART ---- */
+#daily-chart { overflow-x: hidden; padding-bottom: 0; }
+.daily-chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.daily-bar-group { cursor: pointer; transition: opacity 0.25s ease; }
+.daily-bar-group:hover { opacity: 0.8; }
+.daily-chart-svg.has-focus .daily-bar-group { opacity: 0.3; }
+.daily-chart-svg.has-focus .daily-bar-group.focused { opacity: 1; }
+
+@media (max-width: 768px) {
+  #daily-chart { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 15px; }
+  .daily-chart-svg { min-width: 660px; }
+}
 
 /* ---- CATEGORIES ---- */
 .cats-grid {
@@ -2167,6 +2059,46 @@ body {
 /* ---- LIST VIEW ---- */
 .words-list-view .card { margin-bottom: 0; }
 
+/* ---- RESPONSIVE UTILS ---- */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.wotd-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  position: relative;
+  z-index: 10;
+}
+.wotd-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.dash-list-item-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.dash-tag {
+  font-size: 11px;
+  color: var(--gray-600);
+  background: var(--gray-100);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
 /* ---- RESPONSIVE ---- */
 @media (max-width: 900px) {
   .sidebar { transform: translateX(-100%); }
@@ -2175,16 +2107,35 @@ body {
   .hamburger { display: flex; }
   .page-content { padding: 20px 16px; }
   .form-row { grid-template-columns: 1fr; }
-  .words-grid { grid-template-columns: 1fr; }
-  .quiz-choices { grid-template-columns: 1fr; }
+  
   .login-panel { padding: 40px 24px; }
   #dash-charts, #dash-lists { grid-template-columns: 1fr; }}
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: 1fr 1fr; }
+  .stat-card { padding: 12px; gap: 10px; }
+  .stat-icon { width: 36px; height: 36px; }
+  .stat-info .stat-value { font-size: 20px; }
+  .stat-info .stat-label { font-size: 11px; }
   .filter-bar { flex-direction: column; gap: 10px; padding: 12px; }
   .search-input-wrap { min-width: unset; width: 100%; }
   .filter-select { width: 100%; }
   .header-title { font-size: 18px; }
+  .wotd-body { flex-direction: column; align-items: flex-start; }
+  .wotd-actions { width: 100%; justify-content: flex-start; }
+  .chart-bar-item { gap: 8px; font-size: 12px; }
+  .chart-bar-label { width: 85px; font-size: 11px; }
+  .chart-bar-count { width: 25px; font-size: 11px; }
+  .dash-list-item { padding: 12px; }
+  .hide-mobile { display: none !important; }
+  .mobile-icon-btn { width: 38px !important; height: 38px !important; padding: 0 !important; min-width: unset !important; }
+  .modal-header, .modal-body { padding: 16px 20px; }
+  .modal-footer { padding: 16px 20px; justify-content: center; gap: 8px; }
+  .word-detail-header { padding: 20px 24px; }
+  .word-detail-body { padding: 20px 24px; }
+  .word-detail-header .term { font-size: 28px; }
+}
+@media (max-width: 400px) {
+    .words-grid { grid-template-columns: 1fr; }
 }
 
 /* ---- OVERLAY for mobile sidebar ---- */
@@ -2230,7 +2181,7 @@ body {
   border: 1px solid var(--gray-100);
   transform: rotateY(180deg);
 }
-.review-front .term { font-size: 36px; font-weight: 700; }
+.review-front .term { font-size: 32px; font-weight: 700; word-break: break-word; padding: 0 10px; line-height: 1.2; }
 .review-front .hint { color: var(--navy-300); font-size: 13px; margin-top: 12px; }
 .review-back .definition { font-size: 14px; color: var(--gray-700); line-height: 1.8; }
 
@@ -2255,6 +2206,9 @@ body {
 
 /* Word view toggle between grid and table */
 #words-table-view { display: none; }
+
+/* Word Detail Text Wrap */
+.word-detail-header .term { font-size: 32px; font-weight: 600; letter-spacing: -0.5px; word-break: break-word; line-height: 1.2; }
 
 /* ---- BULK ACTION BAR ---- */
 #bulk-action-bar {
@@ -2281,13 +2235,53 @@ body {
   pointer-events: all;
 }
 
+/* ---- TOAST ---- */
+#toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--navy-800);
+  color: white;
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(120%);
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0;
+  pointer-events: none;
+}
+.toast.show {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: all;
+}
+.toast svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.toast.success { background: var(--success); }
+.toast.error { background: var(--danger); }
+.toast.info { background: var(--navy-700); }
+
 /* ---- DASH LIST ITEM ---- */
 .dash-list-item {
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--gray-100);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   transition: var(--transition);
 }
 .dash-list-item:hover { background: rgba(0,0,0,0.02); }
@@ -2664,7 +2658,6 @@ async function doPublicSearch() {
                 <div style="font-size: 15px; color: var(--gray-700); line-height: 1.6;">
                     <strong style="color: var(--navy-800);">Definition:</strong> ${w.definition || '<em style="color: var(--gray-400);">No definition available.</em>'}
                 </div>
-                ${w.example ? `<div style="font-size: 14.5px; color: var(--gray-600); margin-top: 14px; font-style: italic; background: var(--gray-50); border-left: 4px solid var(--accent); padding: 12px 16px; border-radius: 0 6px 6px 0;">"${w.example}"</div>` : ''}
             `;
         } else {
             resDiv.innerHTML = '<div style="text-align: center; color: var(--gray-500); padding: 30px 20px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48" style="opacity: 0.3; margin-bottom: 10px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><br>Word not found.</div>';
@@ -2724,20 +2717,10 @@ function escapeHtml(unsafe) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           Categories
         </a>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Learning</div>
         <a class="nav-item <?= $page==='review'?'active':'' ?>" href="?page=review" onclick="closeSidebar()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           Review Cards
         </a>
-        <a class="nav-item <?= $page==='quiz'?'active':'' ?>" href="?page=quiz" onclick="closeSidebar()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Quiz Mode
-        </a>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Management</div>
         <a class="nav-item <?= $page==='import_export'?'active':'' ?>" href="?page=import_export" onclick="closeSidebar()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
           Import / Export
@@ -2772,7 +2755,7 @@ function escapeHtml(unsafe) {
       </button>
       <div class="header-title" id="page-title">
         <?php
-          $titles = ['dashboard'=>'Dashboard','words'=>'Word Library','categories'=>'Categories','review'=>'Review Cards','quiz'=>'Quiz Mode','import_export'=>'Import / Export','settings'=>'Settings'];
+          $titles = ['dashboard'=>'Dashboard','words'=>'Word Library','categories'=>'Categories','review'=>'Review Cards','import_export'=>'Import / Export','settings'=>'Settings'];
           echo $titles[$page] ?? 'LexiVault';
         ?>
       </div>
@@ -2835,9 +2818,9 @@ function escapeHtml(unsafe) {
         <div class="card">
           <div class="card-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--accent)"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            <h3>Words per Day (30 days)</h3>
+            <h3>Words per Day</h3>
           </div>
-          <div class="card-body" id="daily-chart" style="overflow-x:auto">
+          <div class="card-body" id="daily-chart">
             <div class="loading"><div class="spinner"></div> Loading...</div>
           </div>
         </div>
@@ -2849,7 +2832,7 @@ function escapeHtml(unsafe) {
           <div class="card-body" id="most-opened-list" style="padding:0"></div>
         </div>
         <div class="card">
-          <div class="card-header"><h3 style="display:flex;align-items:center;gap:6px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--success)"><polyline points="20 6 9 17 4 12"/></svg> Learned Today</h3></div>
+          <div class="card-header"><h3 style="display:flex;align-items:center;gap:6px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--success)"><polyline points="20 6 9 17 4 12"/></svg> Recently Learned</h3></div>
           <div class="card-body" id="today-learned-list" style="padding:0"></div>
         </div>
       </div>
@@ -2920,7 +2903,7 @@ function escapeHtml(unsafe) {
     </div>
     <div id="words-table-view">
       <div class="card">
-        <div style="overflow-x:auto">
+        <div class="table-responsive">
           <table class="data-table" id="words-table">
             <thead>
               <tr>
@@ -2977,18 +2960,16 @@ function escapeHtml(unsafe) {
           </div>
           <div class="review-back">
             <div class="definition" id="review-def"></div>
-            <div style="margin-top:14px;font-size:12px;color:var(--gray-400);font-style:italic" id="review-example"></div>
           </div>
         </div>
       </div>
-      <div style="display:flex;justify-content:center;gap:12px;margin-top:20px;flex-wrap:wrap">
+      <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:20px;flex-wrap:wrap">
         <button class="btn btn-secondary" onclick="prevReviewCard()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
           Previous
         </button>
-        <button class="btn btn-success" onclick="markMastered()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-          Mark Mastered
+        <button id="review-mastered-btn" class="btn btn-success" onclick="markReviewMastered(event)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Mark as Mastered
         </button>
         <button class="btn btn-secondary" onclick="nextReviewCard()">
           Next
@@ -3000,22 +2981,6 @@ function escapeHtml(unsafe) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
           Shuffle
         </button>
-      </div>
-    </div>
-
-    <?php elseif ($page === 'quiz'): ?>
-    <!-- ======= QUIZ ======= -->
-    <div style="max-width:640px;margin:0 auto">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
-        <div style="font-size:14px;color:var(--gray-500)">
-          Score: <strong id="quiz-score-display" style="color:var(--navy-700)">0</strong>
-          &nbsp;&bull;&nbsp; Streak: <strong id="quiz-streak" style="color:var(--accent)">0</strong>
-          &nbsp;&bull;&nbsp; Best: <strong id="quiz-best" style="color:var(--gold)">0</strong>
-        </div>
-        <button class="btn btn-secondary btn-sm" onclick="loadQuiz()">New Question</button>
-      </div>
-      <div id="quiz-container">
-        <div class="loading"><div class="spinner"></div> Loading...</div>
       </div>
     </div>
 
@@ -3081,7 +3046,6 @@ function escapeHtml(unsafe) {
     "definition": "&lt;p&gt;Lasting for a very short time&lt;/p&gt;",
     "pronunciation": "/ɪˈfem.ər.əl/",
     "part_of_speech": "adjective",
-    "example": "The ephemeral beauty of cherry blossoms",
     "category_id": 1,
     "tags": ["literary", "time"],
     "difficulty": "medium",
@@ -3286,12 +3250,6 @@ function escapeHtml(unsafe) {
           <div id="def-editor"></div>
         </div>
       </div>
-      <div class="form-field">
-        <label>Example Sentence</label>
-        <div class="quill-wrapper" id="ex-quill-wrap">
-          <div id="ex-editor"></div>
-        </div>
-      </div>
       <div class="form-row">
         <div class="form-field">
           <label>Difficulty</label>
@@ -3410,16 +3368,13 @@ let currentPage = 1;
 let perPage = <?= $wordsPerPage ?? 20 ?>;
 let currentView = 'grid';
 let selectedWords = new Set();
-let allWords = [];
+let allWordsCache = [];
+let isDataLoaded = false;
 let filteredWords = [];
 let reviewWords = [];
 let reviewIndex = 0;
-let quizScore = 0;
-let quizTotal = 0;
-let quizStreak = 0;
 let deleteWordId = null;
 let quillDef = null;
-let quillEx = null;
 let importData = null;
 
 // ============================================================
@@ -3437,11 +3392,8 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
     if (typeof Quill !== 'undefined') {
       quillDef = new Quill('#def-editor', { theme: 'snow', modules: { toolbar: toolbarOptions }, placeholder: 'Enter a clear definition...' });
-      quillEx = new Quill('#ex-editor', { theme: 'snow', modules: { toolbar: [['bold','italic'],'link','clean'] }, placeholder: 'Enter an example sentence...' });
       quillDef.on('focus', () => document.getElementById('def-quill-wrap').classList.add('focused'));
       quillDef.on('blur', () => document.getElementById('def-quill-wrap').classList.remove('focused'));
-      quillEx.on('focus', () => document.getElementById('ex-quill-wrap').classList.add('focused'));
-      quillEx.on('blur', () => document.getElementById('ex-quill-wrap').classList.remove('focused'));
     }
   } catch (e) { console.error('Quill init failed', e); }
   
@@ -3609,37 +3561,44 @@ async function loadDashboard() {
   const barW = 18;
   const chartH = 100;
   const svgW = entries.length * (barW + 4);
+  const serverToday = s.server_today;
   let svgBars = '';
   entries.forEach(([date, count], i) => {
     const barH = Math.max(2, (count / dmax) * chartH);
     const x = i * (barW + 4);
     const y = chartH - barH + 15; // Increased top margin for count text
-    const isToday = date === new Date().toISOString().slice(0,10);
-    svgBars += `<g>`;
+    const isToday = date === serverToday;
+    svgBars += `<g class="daily-bar-group" onclick="focusDailyBar(this, event)">`;
     svgBars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="3" fill="${isToday ? '#2e7dd1' : '#b8d6f5'}">
       <title>${date}: ${count} word${count!==1?'s':''}</title>
     </rect>`;
     if (count > 0) {
         svgBars += `<text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="9" font-weight="600" fill="#344358" style="pointer-events:none;">${count}</text>`;
     }
-    if (isToday || i === 0 || i === entries.length-1 || entries.length <= 7) {
+    if (isToday || i === 0 || i % 7 === 0) {
       svgBars += `<text x="${x + barW/2}" y="${chartH + 28}" text-anchor="middle" font-size="8" fill="#9bafc9" style="pointer-events:none;">${date.slice(5)}</text>`;
     }
     svgBars += `</g>`;
   });
-  dailyEl.innerHTML = `<svg width="${svgW}" height="135" viewBox="0 0 ${svgW} 135" style="overflow:visible; max-width:100%;">${svgBars}</svg>`;
+  dailyEl.innerHTML = `<svg viewBox="0 0 ${svgW} 135" class="daily-chart-svg">${svgBars}</svg>`;
 
   // Most opened list
   const moEl = document.getElementById('most-opened-list');
   if (s.most_opened && s.most_opened.length > 0) {
-    moEl.innerHTML = s.most_opened.map(w => `<div class="dash-list-item" style="cursor:pointer" onclick="location.href='?page=words&view_id=${w.id}'"><strong style="color:var(--navy-900)">${esc(w.term)}</strong> <span style="font-size:12px;color:var(--gray-500);background:var(--gray-100);padding:3px 10px;border-radius:12px;font-weight:600">${w.review_count||0} views</span></div>`).join('');
+    moEl.innerHTML = s.most_opened.map(w => `<div class="dash-list-item" style="cursor:pointer" onclick="location.href='?page=words&view_id=${w.id}'">
+      <div class="dash-list-item-text"><strong style="color:var(--navy-900)">${esc(w.term)}</strong></div>
+      <span class="dash-tag">${w.review_count||0} views</span>
+    </div>`).join('');
   } else { moEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No data yet</div>'; }
 
   // Today learned list
   const tlEl = document.getElementById('today-learned-list');
   if (s.today_learned && s.today_learned.length > 0) {
-    tlEl.innerHTML = s.today_learned.map(w => `<div class="dash-list-item"><strong style="color:var(--success)">${esc(w.term)}</strong> <span style="font-size:12px;color:var(--gray-400);font-weight:500">Mastered</span></div>`).join('');
-  } else { tlEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No words mastered today</div>'; }
+    tlEl.innerHTML = s.today_learned.map(w => `<div class="dash-list-item" style="cursor:pointer" onclick="location.href='?page=words&view_id=${w.id}'">
+      <div class="dash-list-item-text"><strong style="color:var(--navy-900)">${esc(w.term)}</strong></div>
+      <span class="dash-tag">${(w.last_reviewed || w.updated_at || '').slice(0,10)}</span>
+    </div>`).join('');
+  } else { tlEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No words mastered recently</div>'; }
 
   // Recent words
   const rw = await apiGet('words_list');
@@ -3649,16 +3608,16 @@ async function loadDashboard() {
     return;
   }
   const recent = rw.words.slice(0, 5);
-  let tableHtml = '<table class="data-table"><thead><tr><th>Term</th><th>Category</th><th>Date Added</th><th>Status</th></tr></thead><tbody>';
+  let tableHtml = '<div class="table-responsive"><table class="data-table"><thead><tr><th style="width:35%">Term</th><th style="width:25%">Category</th><th style="width:20%">Date Added</th><th style="width:20%">Status</th></tr></thead><tbody>';
   recent.forEach(w => {
     tableHtml += `<tr>
       <td><strong style="font-size:15px;font-weight:600;color:var(--navy-900)">${esc(w.term)}</strong></td>
-      <td><span class="word-cat-badge">${esc(w.category_name)}</span></td>
       <td style="color:var(--gray-400);font-size:12px">${esc(w.date_tag)}</td>
-      <td>${w.mastered ? '<span class="mastered-badge">Mastered</span>' : '<span style="color:var(--gray-400);font-size:12px">Learning</span>'}</td>
+      <td><span class="dash-tag">${esc(w.category_name)}</span></td>
+      <td>${w.mastered ? '<span class="mastered-badge">Mastered</span>' : '<span style="color:var(--gray-400);font-size:12px;font-weight:500">Learning</span>'}</td>
     </tr>`;
   });
-  tableHtml += '</tbody></table>';
+  tableHtml += '</tbody></table></div>';
   recentEl.innerHTML = tableHtml;
   // Update sidebar badge
   const sb = document.getElementById('sb-word-count');
@@ -3672,13 +3631,13 @@ function renderWOTD(w) {
   wc.innerHTML = `
     <div class="card" style="background: linear-gradient(135deg, var(--navy-900), var(--navy-700)); color: white; border: none; overflow:hidden; position:relative;">
       <div style="position:absolute; right:-20px; top:-20px; opacity:0.1;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="160" height="160"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
-      <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; position:relative; z-index:10;">
-        <div>
+      <div class="card-body wotd-body">
+        <div style="flex: 1; min-width: 0;">
           <div style="font-size:11px; color:var(--navy-200); text-transform:uppercase; font-weight:600; letter-spacing:1px; margin-bottom:4px; display:flex; align-items:center; gap:6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Word of the Day</div>
-          <div style="font-size:28px; font-weight:700; margin-bottom:4px; font-family:'Noto Sans', sans-serif;">${esc(w.term)}</div>
-          <div style="font-size:14px; color:var(--navy-100); max-width:600px; line-height:1.5;">${(w.definition || '').replace(/<[^>]+>/g, '') || '<em>No definition</em>'}</div>
+          <div style="font-size:28px; font-weight:700; margin-bottom:4px; font-family:'Noto Sans', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(w.term)}</div>
+          <div style="font-size:14px; color:var(--navy-100); max-width:600px; line-height:1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${(w.definition || '').replace(/<[^>]+>/g, '') || '<em>No definition</em>'}</div>
         </div>
-        <div style="display:flex; gap:10px; align-items:center;">
+        <div class="wotd-actions">
           <button class="btn btn-icon" style="background:rgba(255,255,255,0.1); color:white; border:none;" onclick="refreshWOTD()" title="Get another word">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.92-10.44l5.67-5.67"/></svg>
           </button>
@@ -3695,6 +3654,29 @@ async function refreshWOTD() {
   const r = await apiGet('random_word');
   if (r.success && r.word) { renderWOTD(r.word); toast('New word loaded', 'success'); }
 }
+
+function focusDailyBar(el, event) {
+  event.stopPropagation();
+  const svg = el.closest('svg');
+  if (el.classList.contains('focused')) {
+      el.classList.remove('focused');
+      svg.classList.remove('has-focus');
+  } else {
+      svg.querySelectorAll('.daily-bar-group').forEach(g => g.classList.remove('focused'));
+      el.classList.add('focused');
+      svg.classList.add('has-focus');
+  }
+}
+
+// Click outside to clear focus
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.daily-chart-svg')) {
+      document.querySelectorAll('.daily-chart-svg.has-focus').forEach(svg => {
+          svg.classList.remove('has-focus');
+          svg.querySelectorAll('.focused').forEach(g => g.classList.remove('focused'));
+      });
+  }
+});
 <?php endif; ?>
 
 // ============================================================
@@ -3742,24 +3724,46 @@ async function loadCatsForFilter() {
   });
 }
 
+async function fetchAllWords() {
+  const r = await apiGet('words_list');
+  if (r && r.success) {
+    allWordsCache = r.words;
+    isDataLoaded = true;
+    const sb = document.getElementById('sb-word-count');
+    if (sb) sb.textContent = r.total;
+  }
+}
+
 async function loadWords() {
-  const search = document.getElementById('search-input').value;
+  if (!isDataLoaded) {
+    const grid = document.getElementById('words-grid');
+    if (grid) grid.innerHTML = '<div class="loading" style="grid-column:1/-1"><div class="spinner"></div> Loading...</div>';
+    await fetchAllWords();
+    if (!isDataLoaded) {
+        if(grid) grid.innerHTML = '<div class="empty-state">Failed to load words</div>';
+        return;
+    }
+  }
+
+  const search = document.getElementById('search-input').value.toLowerCase();
   const cat = document.getElementById('cat-filter').value;
   const date = document.getElementById('date-filter').value;
-  const params = { search, category: cat, date };
-  const r = await apiGet('words_list', params);
-  if (!r || !r.success) { 
-    toast(r?.message || 'Failed to load words', 'error'); 
-    document.getElementById('words-grid').innerHTML = '<div class="empty-state">Failed to load words</div>';
-    document.getElementById('words-table-body').innerHTML = '<tr><td colspan="7" style="text-align:center">Failed to load</td></tr>';
-    return; 
-  }
-  let words = r.words;
-  // Client-side sort + diff filter
-  const sort = document.getElementById('sort-filter').value;
   const diff = document.getElementById('diff-filter').value;
+  const sort = document.getElementById('sort-filter').value;
   const status = document.getElementById('status-filter') ? document.getElementById('status-filter').value : '';
   
+  let words = [...allWordsCache];
+
+  if (search) {
+      words = words.filter(w => 
+          w.term.toLowerCase().includes(search) || 
+          (w.definition || '').replace(/<[^>]+>/g, '').toLowerCase().includes(search) ||
+          (w.notes || '').toLowerCase().includes(search) ||
+          (w.tags || []).some(t => t.toLowerCase().includes(search))
+      );
+  }
+  if (cat) words = words.filter(w => w.category_id == cat);
+  if (date) words = words.filter(w => w.date_tag === date);
   if (diff) words = words.filter(w => w.difficulty === diff);
   if (status === 'starred') words = words.filter(w => w.starred);
   else if (status === 'mastered') words = words.filter(w => w.mastered);
@@ -3771,13 +3775,10 @@ async function loadWords() {
   else if (sort === 'mastered') words = [...words.filter(w=>w.mastered), ...words.filter(w=>!w.mastered)];
   else if (sort === 'starred') words = [...words.filter(w=>w.starred), ...words.filter(w=>!w.starred)];
   filteredWords = words;
-  allWords = words;
   const info = document.getElementById('words-result-info');
-  info.textContent = `Showing ${words.length} word${words.length!==1?'s':''}`;
+  if(info) info.textContent = `Showing ${words.length} word${words.length!==1?'s':''}`;
   renderWords(words);
   renderPagination(words.length);
-  const sb = document.getElementById('sb-word-count');
-  if (sb) sb.textContent = r.total;
 }
 
 function getPageWords(words) {
@@ -3910,7 +3911,6 @@ function openAddWord() {
   document.getElementById('word-tags').value = '';
   document.getElementById('word-notes').value = '';
   if (quillDef) quillDef.root.innerHTML = '';
-  if (quillEx) quillEx.root.innerHTML = '';
   document.getElementById('word-modal-overlay').classList.add('active');
   setTimeout(() => document.getElementById('word-term').focus(), 200);
 }
@@ -3941,7 +3941,6 @@ async function autoFetchDefinition() {
       if (meaning.definitions && meaning.definitions.length > 0) {
         const def = meaning.definitions[0];
         if (quillDef) quillDef.root.innerHTML = `<p>${def.definition}</p>`;
-        if (quillEx && def.example) quillEx.root.innerHTML = `<p>${def.example}</p>`;
       }
     }
     document.getElementById('word-source').value = 'Free Dictionary API';
@@ -3967,7 +3966,6 @@ async function editWord(id) {
   document.getElementById('word-tags').value = (w.tags||[]).join(', ');
   document.getElementById('word-notes').value = w.notes || '';
   if (quillDef) quillDef.root.innerHTML = w.definition || '';
-  if (quillEx) quillEx.root.innerHTML = w.example || '';
   document.getElementById('word-modal-overlay').classList.add('active');
 }
 
@@ -3982,7 +3980,6 @@ async function saveWord() {
   fd.append('part_of_speech', document.getElementById('word-pos').value);
   fd.append('category_id', document.getElementById('word-category').value);
   fd.append('definition', quillDef ? quillDef.root.innerHTML : '');
-  fd.append('example', quillEx ? quillEx.root.innerHTML : '');
   fd.append('difficulty', document.getElementById('word-difficulty').value);
   fd.append('source', document.getElementById('word-source').value);
   fd.append('tags', document.getElementById('word-tags').value);
@@ -3996,8 +3993,8 @@ async function saveWord() {
   if (r.success) {
     toast(fd.get('id') ? 'Word updated' : 'Word added', 'success');
     closeWordModal();
+    isDataLoaded = false;
     loadWords();
-    loadWordCount();
   } else {
     toast(r.message || 'Save failed', 'error');
   }
@@ -4011,16 +4008,14 @@ async function viewWord(id) {
   await apiPost('word_increment_review', { id });
   
   const rawDef = (w.definition || '').replace(/<[^>]+>/g, '');
-  const rawEx = (w.example || '').replace(/<[^>]+>/g, '');
   let copyStr = w.term + (w.pronunciation ? ` (${w.pronunciation})` : '');
   if (w.part_of_speech) copyStr += `\nType: ${w.part_of_speech}`;
   if (rawDef) copyStr += `\nDefinition: ${rawDef}`;
-  if (rawEx) copyStr += `\nExample: ${rawEx}`;
   const copyData = btoa(unescape(encodeURIComponent(copyStr)));
   
   let shareBtnHTML = '';
   if (navigator.share) {
-    shareBtnHTML = `<button class="btn btn-ghost" onclick="shareWord('${copyData}')" title="Share">
+    shareBtnHTML = `<button class="btn btn-ghost mobile-icon-btn" onclick="shareWord('${copyData}')" title="Share">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> <span class="hide-mobile">Share</span>
     </button>`;
   }
@@ -4045,7 +4040,6 @@ async function viewWord(id) {
     </div>
     <div class="word-detail-body">
       ${w.definition ? `<div class="detail-section"><div class="detail-section-title">Definition</div><div class="detail-definition">${w.definition}</div></div>` : ''}
-      ${w.example ? `<div class="detail-section"><div class="detail-section-title">Example</div><div class="detail-definition" style="font-style:italic">${w.example}</div></div>` : ''}
       ${w.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-definition">${esc(w.notes)}</div></div>` : ''}
       <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:13px;color:var(--gray-500)">
         ${w.source ? `<span><strong>Source:</strong> ${esc(w.source)}</span>` : ''}
@@ -4057,25 +4051,25 @@ async function viewWord(id) {
     </div>`;
   document.getElementById('word-detail-content').innerHTML = content;
   document.getElementById('word-detail-footer').innerHTML = `
-    <button class="btn btn-ghost" onclick="speakWord('${esc(w.term).replace(/'/g, "\\'")}')" title="Listen">
+    <button class="btn btn-ghost mobile-icon-btn" onclick="speakWord('${esc(w.term).replace(/'/g, "\\'")}')" title="Listen">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
       <span class="hide-mobile">Listen</span>
     </button>
-    <button class="btn btn-ghost" onclick="copyEncodedText('${copyData}')" title="Copy">
+    <button class="btn btn-ghost mobile-icon-btn" onclick="copyEncodedText('${copyData}')" title="Copy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       <span class="hide-mobile">Copy</span>
     </button>
     ${shareBtnHTML}
     <div style="flex:1" class="hide-mobile"></div>
-    <button class="btn btn-ghost" onclick="toggleStar(${w.id});closeDetailModal()" title="${w.starred ? 'Unstar' : 'Star'}">
+    <button class="btn btn-ghost mobile-icon-btn" onclick="toggleStar(${w.id});closeDetailModal()" title="${w.starred ? 'Unstar' : 'Star'}">
       <svg viewBox="0 0 24 24" fill="${w.starred?'var(--gold)':'none'}" stroke="${w.starred?'var(--gold)':'currentColor'}" stroke-width="2" width="15" height="15"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
       <span class="hide-mobile">${w.starred ? 'Unstar' : 'Star'}</span>
     </button>
-    <button class="btn btn-success btn-sm" onclick="toggleMastered(${w.id});closeDetailModal()" title="${w.mastered ? 'Unmark Mastered' : 'Mark Mastered'}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="20 6 9 17 4 12"/></svg>
+    <button class="btn ${w.mastered ? 'btn-danger' : 'btn-success'} btn-sm mobile-icon-btn" onclick="toggleMastered(${w.id});closeDetailModal()" title="${w.mastered ? 'Unmark Mastered' : 'Mark Mastered'}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">${w.mastered ? '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' : '<polyline points="20 6 9 17 4 12"/>'}</svg>
       <span class="hide-mobile">${w.mastered ? 'Unmark' : 'Mastered'}</span>
     </button>
-    <button class="btn btn-secondary" onclick="closeDetailModal();editWord(${w.id})" title="Edit">
+    <button class="btn btn-secondary mobile-icon-btn" onclick="closeDetailModal();editWord(${w.id})" title="Edit">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
       <span class="hide-mobile">Edit</span>
     </button>
@@ -4097,6 +4091,7 @@ async function toggleStar(id) {
       btn.title = r.starred ? 'Unstar' : 'Star';
     }
     toast(r.starred ? 'Starred' : 'Unstarred', 'info');
+    isDataLoaded = false;
     loadWords();
   }
 }
@@ -4104,39 +4099,38 @@ async function toggleMastered(id) {
   const r = await apiPost('word_toggle_mastered', { id });
   if (r.success) {
     toast(r.mastered ? 'Marked as mastered' : 'Marked as learning', 'success');
+    isDataLoaded = false;
     loadWords();
-    loadWordCount();
   }
 }
 
 // ---- DELETE ----
 function deleteWordWithUndo(id) {
-  const wIndex = allWords.findIndex(w => w.id === id);
+  const wIndex = allWordsCache.findIndex(w => w.id === id);
   if (wIndex === -1) return;
-  const word = allWords[wIndex];
+  const word = allWordsCache[wIndex];
   
-  allWords.splice(wIndex, 1);
-  const fwIndex = filteredWords.findIndex(w => w.id === id);
-  if (fwIndex !== -1) filteredWords.splice(fwIndex, 1);
-  
-  renderWords(filteredWords);
-  renderPagination(filteredWords.length);
+  allWordsCache.splice(wIndex, 1);
+  loadWords();
   
   const tid = Date.now();
   let undone = false;
   toastUndo(`Word deleted`, () => {
     undone = true;
     clearTimeout(window[`delTimeout_${tid}`]);
-    allWords.splice(wIndex, 0, word);
-    if (fwIndex !== -1) filteredWords.splice(fwIndex, 0, word);
-    renderWords(filteredWords);
-    renderPagination(filteredWords.length);
+    allWordsCache.splice(wIndex, 0, word);
+    loadWords();
   });
 
   window[`delTimeout_${tid}`] = setTimeout(async () => {
     if (!undone) {
       const r = await apiPost('word_delete', { id });
-      if (r.success) loadWordCount();
+      if (r.success) {
+         loadWordCount();
+      } else {
+         isDataLoaded = false;
+         loadWords();
+      }
     }
     delete window[`delTimeout_${tid}`];
   }, 5000);
@@ -4183,7 +4177,7 @@ function confirmBulkCategorize() {
 }
 async function doBulkApi(action, ids, extra={}) {
   const r = await apiPost('words_bulk_action', { bulk_action: action, ids, ...extra });
-  if (r.success) { toast(`Bulk action applied to ${r.count} words`, 'success'); clearSelection(); loadWords(); loadWordCount(); }
+  if (r.success) { toast(`Bulk action applied to ${r.count} words`, 'success'); clearSelection(); isDataLoaded = false; loadWords(); loadWordCount(); }
   else { toast(r.message || 'Action failed', 'error'); }
 }
 
@@ -4330,7 +4324,19 @@ function showReviewCard() {
   const w = reviewWords[reviewIndex];
   document.getElementById('review-term').textContent = w.term;
   document.getElementById('review-def').innerHTML = w.definition || 'No definition';
-  document.getElementById('review-example').innerHTML = w.example || '';
+
+  const masteredBtn = document.getElementById('review-mastered-btn');
+
+  if (w.mastered) {
+    masteredBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Unmark Mastered`;
+    masteredBtn.classList.remove('btn-success');
+    masteredBtn.classList.add('btn-danger');
+  } else {
+    masteredBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="20 6 9 17 4 12"/></svg> Mark as Mastered`;
+    masteredBtn.classList.remove('btn-danger');
+    masteredBtn.classList.add('btn-success');
+  }
+
   if (document.getElementById('review-autoplay').checked) speakWord(w.term);
 }
 
@@ -4354,12 +4360,14 @@ function shuffleReview() {
   showReviewCard();
   toast('Cards shuffled', 'info');
 }
-async function markMastered() {
+async function markReviewMastered(e) {
+  e.stopPropagation();
   if (!reviewWords[reviewIndex]) return;
   const r = await apiPost('word_toggle_mastered', { id: reviewWords[reviewIndex].id });
   if (r.success) {
-    toast(r.mastered ? 'Marked as mastered' : 'Unmarked', 'success');
     reviewWords[reviewIndex].mastered = r.mastered;
+    showToast(r.mastered ? 'Word mastered!' : 'Mastery removed.');
+    showReviewCard();
   }
 }
 document.addEventListener('keydown', e => {
@@ -4367,107 +4375,6 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft') prevReviewCard();
   else if (e.key === ' ') { e.preventDefault(); flipReviewCard(); }
 });
-<?php endif; ?>
-
-// ============================================================
-// QUIZ
-// ============================================================
-<?php if ($page === 'quiz'): ?>
-let quizAnswer = null;
-let quizHighScore = 0;
-let quizInitialized = false;
-
-document.addEventListener('DOMContentLoaded', loadQuiz);
-async function loadQuiz() {
-  const container = document.getElementById('quiz-container');
-  if (!quizInitialized) {
-    const rHS = await apiGet('quiz_high_score');
-    if (rHS.success) quizHighScore = rHS.high_score;
-    document.getElementById('quiz-best').textContent = quizHighScore;
-    quizInitialized = true;
-  }
-  container.innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
-  const r = await apiGet('quiz_random');
-  quizAnswer = null;
-  if (!r.success) {
-    container.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><h4>${r.message||'Cannot load quiz'}</h4><p>Add at least 4 words to start quizzing.</p></div>`;
-    return;
-  }
-  quizAnswer = r.question.id;
-  const mode = r.mode;
-  const qText = mode === 'term_to_def' ? r.question.term : (r.question.definition || 'No definition');
-  const qPrompt = mode === 'term_to_def' ? 'Select the correct definition' : 'Select the correct word';
-  
-  container.innerHTML = `
-    <div class="quiz-card">
-      <div class="quiz-term" style="${mode === 'term_to_def' ? 'font-size:40px;' : 'font-size:22px;line-height:1.4;'}">${esc(qText)}</div>
-      <div class="quiz-prompt">${qPrompt}</div>
-      <div class="quiz-choices" id="qchoices">
-        ${r.choices.map(c => `<button class="quiz-choice" onclick="answerQuiz(${c.id})" data-id="${c.id}">${esc(c.text)}</button>`).join('')}
-      </div>
-      <div id="quiz-result" style="margin-bottom:12px;font-size:14px;min-height:24px;font-weight:500"></div>
-      <button class="btn btn-primary" onclick="loadQuiz()" id="quiz-next-btn" style="display:none">Next Question</button>
-    </div>`;
-}
-
-function playQuizSound(isCorrect) {
-  try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    
-    if (isCorrect) {
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.3);
-    } else {
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(300, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.2);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.2);
-    }
-  } catch (e) {}
-}
-
-async function answerQuiz(chosenId) {
-  if (!quizAnswer) return;
-  quizTotal++;
-  const correct = chosenId === quizAnswer;
-  playQuizSound(correct);
-  if (correct) { 
-    quizScore += 20; quizStreak++; 
-    if (quizScore > quizHighScore) {
-      quizHighScore = quizScore;
-      document.getElementById('quiz-best').textContent = quizHighScore;
-      apiPost('quiz_save_score', { score: quizHighScore });
-    }
-  } else { quizStreak = 0; }
-  document.getElementById('quiz-score-display').textContent = `${quizScore}`;
-  document.getElementById('quiz-streak').textContent = quizStreak;
-  const buttons = document.querySelectorAll('.quiz-choice');
-  buttons.forEach(btn => {
-    btn.disabled = true;
-    if (parseInt(btn.dataset.id) === quizAnswer) btn.classList.add('correct');
-    else if (parseInt(btn.dataset.id) === chosenId && !correct) btn.classList.add('wrong');
-  });
-  const res = document.getElementById('quiz-result');
-  res.style.color = correct ? 'var(--success)' : 'var(--danger)';
-  res.textContent = correct ? '+20 Points! Correct!' : `Incorrect. The answer is highlighted above.`;
-  document.getElementById('quiz-next-btn').style.display = 'inline-flex';
-  if (correct) await apiPost('word_increment_review', { id: quizAnswer });
-}
 <?php endif; ?>
 
 // ============================================================
@@ -4661,7 +4568,6 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
   f.innerHTML = 'Developed with ❤️ by Vineet'; 
   f.style.cssText = "text-align:center; padding:20px; color:var(--gray-500); font-size:14px; font-weight:500; font-family:inherit;";
   if(document.querySelector('.main-content')) document.querySelector('.main-content').appendChild(f);
-  setInterval(() => { if(!document.body.innerHTML.includes('Vineet')) document.body.innerHTML = atob('PGgxIHN0eWxlPSJ0ZXh0LWFsaWduOmNlbnRlcjttYXJnaW4tdG9wOjIwJSI+UGxlYXNlIHJlc3RvcmUgdGhlIGZvb3RlciB0byB1c2UgTGV4aVZhdWx0LjwvaDE+'); }, 3000);
 })();
 </script>
 
