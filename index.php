@@ -1506,6 +1506,9 @@ body {
   transition: var(--transition);
   color: var(--gray-800);
   background: var(--gray-50);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .search-input:hover { background: var(--gray-100); }
 .search-input:focus { border-color: var(--accent); background: white; box-shadow: 0 0 0 3px rgba(46,125,209,0.1); }
@@ -1556,6 +1559,7 @@ body {
   color: var(--navy-900);
   flex: 1;
   line-height: 1.3;
+  word-break: break-word;
 }
 .word-pos {
   font-style: italic;
@@ -1567,6 +1571,8 @@ body {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .word-definition {
   color: var(--gray-700);
@@ -2859,7 +2865,10 @@ function escapeHtml(unsafe) {
       <select class="filter-select" id="cat-filter" onchange="loadWords()">
         <option value="">All Categories</option>
       </select>
-      <input type="date" class="filter-select" id="date-filter" onchange="loadWords()" title="Filter by date">
+      <select class="filter-select" id="tag-filter" onchange="loadWords()">
+        <option value="">All Tags</option>
+      </select>
+      <input type="text" class="filter-select" id="date-filter" onchange="loadWords()" onfocus="this.type='date'; setTimeout(() => { if(this.showPicker) this.showPicker(); }, 50);" onblur="(this.type=this.value?'date':'text')" placeholder="Select date" title="Filter by date">
       <select class="filter-select" id="diff-filter" onchange="loadWords()">
         <option value="">All Difficulty</option>
         <option value="easy">Easy</option>
@@ -2881,6 +2890,10 @@ function escapeHtml(unsafe) {
         <option value="starred">Starred</option>
       </select>
       <select class="filter-select" id="per-page-filter" onchange="changePerPage()">
+        <?php if (!in_array($wordsPerPage, [5, 10, 20, 50, 100])): ?>
+        <option value="<?= $wordsPerPage ?>" selected><?= $wordsPerPage ?> per page</option>
+        <?php endif; ?>
+        <option value="5" <?= $wordsPerPage==5?'selected':'' ?>>5 per page</option>
         <option value="10" <?= $wordsPerPage==10?'selected':'' ?>>10 per page</option>
         <option value="20" <?= $wordsPerPage==20?'selected':'' ?>>20 per page</option>
         <option value="50" <?= $wordsPerPage==50?'selected':'' ?>>50 per page</option>
@@ -2920,14 +2933,14 @@ function escapeHtml(unsafe) {
 
     <?php elseif ($page === 'categories'): ?>
     <!-- ======= CATEGORIES ======= -->
-    <div class="filter-bar" style="display:flex;justify-content:space-between;align-items:center;">
-      <div class="search-input-wrap" style="flex:1;max-width:400px">
+    <div class="filter-bar" style="display:flex;justify-content:space-between;align-items:center;flex-direction:row !important;flex-wrap:nowrap !important;">
+      <div class="search-input-wrap" style="flex:1;max-width:400px;min-width:0;margin-right:10px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" class="search-input" id="cat-search" placeholder="Search categories..." oninput="filterCats()">
       </div>
-      <button class="btn btn-primary" onclick="openCatModal()">
+      <button class="btn btn-primary" onclick="openCatModal()" style="white-space:nowrap;flex-shrink:0;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        New Category
+        New <span class="hide-mobile">Category</span>
       </button>
     </div>
     <div class="cats-grid" id="cats-grid">
@@ -2937,13 +2950,14 @@ function escapeHtml(unsafe) {
     <?php elseif ($page === 'review'): ?>
     <!-- ======= REVIEW CARDS ======= -->
     <div style="max-width:600px;margin:0 auto">
-      <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-        <select class="filter-select" id="review-cat" onchange="loadReviewCard()" style="flex:1">
+      <div class="filter-bar" style="padding:14px;margin-bottom:20px;justify-content:center;flex-direction:row !important;flex-wrap:nowrap !important;">
+        <select class="filter-select" id="review-cat" onchange="loadReviewCard()" style="flex:1;min-width:0;">
           <option value="">All Categories</option>
         </select>
-        <select class="filter-select" id="review-filter" onchange="loadReviewCard()">
+        <select class="filter-select" id="review-filter" onchange="loadReviewCard()" style="flex:1;min-width:0;">
           <option value="">All Words</option>
           <option value="notmastered">Not Mastered</option>
+          <option value="mastered">Mastered</option>
           <option value="starred">Starred</option>
         </select>
       </div>
@@ -3264,9 +3278,10 @@ function escapeHtml(unsafe) {
           <input type="text" id="word-source" placeholder="Oxford, Merriam-Webster...">
         </div>
       </div>
-      <div class="form-field">
+      <div class="form-field" style="position:relative;">
         <label>Tags (comma separated)</label>
-        <input type="text" id="word-tags" placeholder="science, important, exam...">
+        <input type="text" id="word-tags" placeholder="science, important, exam..." oninput="suggestTags(this)" autocomplete="off">
+        <div id="tag-suggestions" class="autocomplete-items" style="display:none; bottom:100%; top:auto; border-radius:var(--radius) var(--radius) 0 0; border-top:1px solid var(--gray-200); border-bottom:none; z-index:1000; max-height:200px; overflow-y:auto;"></div>
       </div>
       <div class="form-field">
         <label>Personal Notes</label>
@@ -3376,6 +3391,7 @@ let reviewIndex = 0;
 let deleteWordId = null;
 let quillDef = null;
 let importData = null;
+let allAvailableTags = [];
 
 // ============================================================
 // QUILL INIT
@@ -3399,6 +3415,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   loadWords();
   loadCatsForFilter();
+  loadTagsForFilter();
   loadWordCount();
   
   loadWords().then(() => {
@@ -3724,6 +3741,55 @@ async function loadCatsForFilter() {
   });
 }
 
+async function loadTagsForFilter() {
+  const r = await apiGet('all_tags');
+  if (!r.success) return;
+  allAvailableTags = r.tags;
+  const sel = document.getElementById('tag-filter');
+  if (sel) {
+    sel.innerHTML = '<option value="">All Tags</option>';
+    r.tags.forEach(t => {
+      sel.innerHTML += `<option value="${esc(t)}">${esc(t)}</option>`;
+    });
+  }
+}
+
+function suggestTags(input) {
+  const list = document.getElementById('tag-suggestions');
+  if (!list) return;
+  const val = input.value;
+  const parts = val.split(',').map(s => s.trim());
+  const currentPart = parts[parts.length - 1].toLowerCase();
+  
+  if (!currentPart) {
+    list.style.display = 'none';
+    return;
+  }
+  
+  const matches = allAvailableTags.filter(t => 
+    t.toLowerCase().includes(currentPart) && 
+    !parts.slice(0, -1).map(p=>p.toLowerCase()).includes(t.toLowerCase())
+  );
+  
+  if (matches.length === 0) {
+    list.style.display = 'none';
+    return;
+  }
+  
+  list.innerHTML = matches.map(m => `<div onclick="selectTag('${esc(m).replace(/'/g, "\\'")}')">${esc(m)}</div>`).join('');
+  list.style.display = 'block';
+}
+
+function selectTag(tag) {
+  const input = document.getElementById('word-tags');
+  const parts = input.value.split(',').map(s => s.trim());
+  parts.pop();
+  parts.push(tag);
+  input.value = parts.join(', ') + ', ';
+  document.getElementById('tag-suggestions').style.display = 'none';
+  input.focus();
+}
+
 async function fetchAllWords() {
   const r = await apiGet('words_list');
   if (r && r.success) {
@@ -3747,6 +3813,7 @@ async function loadWords() {
 
   const search = document.getElementById('search-input').value.toLowerCase();
   const cat = document.getElementById('cat-filter').value;
+  const tag = document.getElementById('tag-filter') ? document.getElementById('tag-filter').value : '';
   const date = document.getElementById('date-filter').value;
   const diff = document.getElementById('diff-filter').value;
   const sort = document.getElementById('sort-filter').value;
@@ -3763,6 +3830,7 @@ async function loadWords() {
       );
   }
   if (cat) words = words.filter(w => w.category_id == cat);
+  if (tag) words = words.filter(w => w.tags && w.tags.includes(tag));
   if (date) words = words.filter(w => w.date_tag === date);
   if (diff) words = words.filter(w => w.difficulty === diff);
   if (status === 'starred') words = words.filter(w => w.starred);
@@ -3775,8 +3843,6 @@ async function loadWords() {
   else if (sort === 'mastered') words = [...words.filter(w=>w.mastered), ...words.filter(w=>!w.mastered)];
   else if (sort === 'starred') words = [...words.filter(w=>w.starred), ...words.filter(w=>!w.starred)];
   filteredWords = words;
-  const info = document.getElementById('words-result-info');
-  if(info) info.textContent = `Showing ${words.length} word${words.length!==1?'s':''}`;
   renderWords(words);
   renderPagination(words.length);
 }
@@ -3788,6 +3854,16 @@ function getPageWords(words) {
 
 function renderWords(words) {
   const pageWords = getPageWords(words);
+  const info = document.getElementById('words-result-info');
+  if (info) {
+      if (words.length === 0) {
+          info.textContent = 'Showing 0 words';
+      } else {
+          const start = (currentPage - 1) * perPage + 1;
+          const end = Math.min(currentPage * perPage, words.length);
+          info.textContent = `Showing ${start}-${end} of ${words.length} word${words.length !== 1 ? 's' : ''}`;
+      }
+  }
   if (currentView === 'grid') renderGrid(pageWords, words.length);
   else renderTable(pageWords, words.length);
 }
@@ -3840,7 +3916,7 @@ function wordCard(w) {
   const starClass = w.starred ? 'starred' : '';
   return `<div class="word-card" id="wc-${w.id}">
     <div class="word-card-header">
-      <div>
+      <div style="flex:1; min-width:0;">
         <div class="word-term" onclick="viewWord(${w.id})" style="cursor:pointer;font-weight:700">${esc(w.term)}</div>
         ${w.pronunciation ? `<div class="word-pos">${esc(w.pronunciation)}</div>` : ''}
         ${w.part_of_speech ? `<div class="word-pos" style="margin-top:2px">${esc(w.part_of_speech)}</div>` : ''}
@@ -4304,6 +4380,7 @@ async function loadReviewCard() {
   let words = r.words;
   if (filt === 'notmastered') words = words.filter(w => !w.mastered);
   else if (filt === 'starred') words = words.filter(w => w.starred);
+  else if (filt === 'mastered') words = words.filter(w => w.mastered);
   reviewWords = words;
   reviewIndex = 0;
   showReviewCard();
@@ -4561,6 +4638,11 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
       o.classList.remove('active');
     }
   });
+});
+
+document.addEventListener('click', e => {
+  const list = document.getElementById('tag-suggestions');
+  if (list && e.target.id !== 'word-tags') list.style.display = 'none';
 });
 
 (function(){
