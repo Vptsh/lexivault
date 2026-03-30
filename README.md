@@ -12,15 +12,14 @@ LexiVault isn't just a list of words; it's a complete learning ecosystem:
 
 *   **⚡ Single-File Architecture:** The entire application (HTML, CSS, JS, and PHP) is packed into a single `index.php` file for incredibly simple deployment.
 *   **📖 Dictionary Auto-Fetch:** Simply type a word and click "Fetch." LexiVault automatically pulls the pronunciation, part of speech, definition, and an example sentence from a free dictionary API.
-*   **🧠 Smart Learning Modes:**
-    *   **Review Cards:** Interactive flashcards with space repetition concepts (Tracks "Mastered" and "Learning" statuses).
-    *   **Quiz Mode:** Test your knowledge with dynamically generated multiple-choice quizzes to build your learning streak.
-*   **📊 Dynamic Dashboard:** Get deep insights into your vocabulary growth with beautiful charts tracking words added per day, category distributions, and your "Word of the Day".
-*   **🔊 Text-to-Speech (TTS):** Built-in browser TTS allows you to hear the pronunciation of any word in your vault with a single click.
+*   **🧠 Review Cards:** Interactive flashcards with study progression tracking (Mark words as "Mastered" or "Learning", auto-play audio, and shuffle deck).
+*   **📊 Dynamic Dashboard:** Get deep insights into your vocabulary growth with beautiful charts tracking words added per day, category distributions, "Word of the Day," and your most viewed words.
+*   **📝 Rich Text Definitions:** Powered by Quill.js, craft beautiful, formatted definitions and notes.
+*   **🗂️ Advanced Organization & Bulk Actions:** Group words by Category, tag them with multiple tags, set difficulty levels, and mark your favorites with a Star. Easily manage your vault with bulk categorize, master, star, or delete operations.
+*   ** Text-to-Speech (TTS):** Built-in browser TTS allows you to hear the pronunciation of any word in your vault with a single click.
 *   **🌍 Public Access:** Includes a sleek public-facing search page (with autocomplete and history) and a developer-friendly JSON API endpoint.
-*   **✉️ Daily Email Digests:** Setup SMTP to receive automated daily emails summarizing your newly added words to reinforce memory.
-*   **🔄 Universal Import/Export:** Never lose your data. Export your vault as JSON, CSV, or SQL backups, and import existing JSON word lists effortlessly.
-*   **🗂️ Advanced Organization:** Group words by Category, tag them with multiple tags, set difficulty levels, and mark your absolute favorites with a Star.
+*   **✉️ Daily Email Digests:** Setup native SMTP or PHP Mail to receive automated daily emails summarizing your newly added words to reinforce memory.
+*   **🔄 Universal Import/Export:** Never lose your data. Export your vault as JSON, CSV, or full SQL backups. Import existing JSON word lists or restore SQL databases directly from the interface.
 *   **🖨️ Print & Share:** Generate beautiful printable layouts for offline study, or share a word's full details via your device's native sharing capabilities.
 
 ---
