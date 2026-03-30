@@ -664,14 +664,14 @@ if (isset($_GET['api'])) {
     $tz = getSettings()['timezone'] ?? 'UTC';
     date_default_timezone_set($tz);
     
-    // Per day (Strictly rolling 30 days ending today)
+    // Per day (Last 7 days only, today inclusive)
     $daily = [];
     $todayDate = date('Y-m-d');
     
     $dt = new DateTime($todayDate);
-    $dt->modify('-29 days'); // Exactly 30 days inclusive
+    $dt->modify('-6 days'); // Exactly 7 days inclusive
     
-    for ($i = 0; $i < 30; $i++) {
+    for ($i = 0; $i < 7; $i++) {
         $daily[$dt->format('Y-m-d')] = 0;
         $dt->modify('+1 day');
     }
@@ -1820,6 +1820,7 @@ body {
   flex: 1;
 }
 .card-body { padding: 16px 18px; }
+#daily-chart.card-body { padding: 12px 14px 8px; min-height: 190px; }
 
 /* ---- WORD DETAIL VIEW ---- */
 .word-detail {
@@ -1993,23 +1994,33 @@ body {
 .chart-bar-count { color: var(--gray-500); width: 35px; flex-shrink: 0; text-align: right; font-size: 12px; font-weight: 600; }
 
 /* ---- DAILY CHART ---- */
-#daily-chart { overflow-x: hidden; padding-bottom: 0; }
-.daily-chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
-.daily-bar-group { cursor: pointer; transition: opacity 0.25s ease; }
-.daily-bar-group:hover { opacity: 0.8; }
-.daily-chart-svg.has-focus .daily-bar-group { opacity: 0.3; }
+#daily-chart {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 4px 4px;
+  min-height: 190px;
+  display: flex;
+  align-items: flex-end;
+  scrollbar-width: none; /* Firefox */
+}
+#daily-chart::-webkit-scrollbar { display: none; } /* Chrome/Safari */
+.daily-chart-svg { display: block; overflow: visible; flex-shrink: 0; }
+.daily-bar-group { transition: opacity 0.2s ease; }
+.daily-bar-group:hover rect:last-of-type { opacity: 0.85; }
+.daily-chart-svg.has-focus .daily-bar-group { opacity: 0.25; }
 .daily-chart-svg.has-focus .daily-bar-group.focused { opacity: 1; }
+.daily-chart-svg.has-focus .daily-bar-group.focused-today { opacity: 1; }
 
 @media (max-width: 768px) {
-  #daily-chart { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 15px; }
-  .daily-chart-svg { min-width: 660px; }
+  #daily-chart { padding: 8px 2px 4px; min-height: 180px; }
 }
 
 /* ---- CATEGORIES ---- */
 .cats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
 }
 .cat-card {
   background: var(--glass-bg);
@@ -2017,29 +2028,30 @@ body {
   -webkit-backdrop-filter: blur(16px);
   border: var(--glass-border);
   border-radius: var(--radius);
-  padding: 18px 20px;
+  padding: 16px 18px;
   box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   transition: var(--transition);
   cursor: pointer;
+  min-width: 0;
 }
 .cat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 .cat-color-dot {
-  width: 40px; height: 40px;
-  border-radius: 10px;
+  width: 44px; height: 44px;
+  border-radius: 12px;
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   color: white;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 17px;
 }
-.cat-info { flex: 1; min-width: 0; }
-.cat-name { font-weight: 600; color: var(--navy-900); font-size: 14px; }
+.cat-info { flex: 1; min-width: 0; overflow: hidden; }
+.cat-name { font-weight: 600; color: var(--navy-900); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cat-desc { font-size: 12px; color: var(--gray-500); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cat-count { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
-.cat-actions { display: flex; gap: 4px; }
+.cat-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
 /* ---- VIEW TOGGLE ---- */
 .view-toggle {
@@ -2132,6 +2144,10 @@ body {
   .chart-bar-label { width: 85px; font-size: 11px; }
   .chart-bar-count { width: 25px; font-size: 11px; }
   .dash-list-item { padding: 12px; }
+  .cats-grid { grid-template-columns: 1fr; }
+  .cat-card { padding: 14px 14px; gap: 12px; }
+  .cat-color-dot { width: 38px; height: 38px; font-size: 15px; border-radius: 10px; }
+  .cat-actions .btn { padding: 5px 8px; font-size: 12px; }
   .hide-mobile { display: none !important; }
   .mobile-icon-btn { width: 38px !important; height: 38px !important; padding: 0 !important; min-width: unset !important; }
   .modal-header, .modal-body { padding: 16px 20px; }
@@ -3571,33 +3587,90 @@ async function loadDashboard() {
     html += '</div>';
     catEl.innerHTML = html;
   }
-  // Daily chart
+  // Daily chart — last 7 days (enforced on client side too)
   const dailyEl = document.getElementById('daily-chart');
-  const entries = Object.entries(s.daily);
-  const dmax = Math.max(...entries.map(e=>e[1]), 1);
-  const barW = 18;
-  const chartH = 100;
-  const svgW = entries.length * (barW + 4);
+  // Sort by date, take last 7 only — defensive against stale/cached data
+  const allEntries = Object.entries(s.daily).sort((a, b) => a[0].localeCompare(b[0]));
+  const entries = allEntries.slice(-7);
   const serverToday = s.server_today;
-  let svgBars = '';
-  entries.forEach(([date, count], i) => {
-    const barH = Math.max(2, (count / dmax) * chartH);
-    const x = i * (barW + 4);
-    const y = chartH - barH + 15; // Increased top margin for count text
-    const isToday = date === serverToday;
-    svgBars += `<g class="daily-bar-group" onclick="focusDailyBar(this, event)">`;
-    svgBars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="3" fill="${isToday ? '#2e7dd1' : '#b8d6f5'}">
-      <title>${date}: ${count} word${count!==1?'s':''}</title>
-    </rect>`;
-    if (count > 0) {
-        svgBars += `<text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="9" font-weight="600" fill="#344358" style="pointer-events:none;">${count}</text>`;
-    }
-    if (isToday || i === 0 || i % 7 === 0) {
-      svgBars += `<text x="${x + barW/2}" y="${chartH + 28}" text-anchor="middle" font-size="8" fill="#9bafc9" style="pointer-events:none;">${date.slice(5)}</text>`;
-    }
-    svgBars += `</g>`;
-  });
-  dailyEl.innerHTML = `<svg viewBox="0 0 ${svgW} 135" class="daily-chart-svg">${svgBars}</svg>`;
+
+  if (entries.length === 0) {
+    dailyEl.innerHTML = '<div class="empty-state" style="padding:30px"><p>No data yet</p></div>';
+  } else {
+    const dmax = Math.max(...entries.map(e => e[1]), 1);
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+    // Layout constants
+    const paddingTop    = 28; // room for count label above tallest bar
+    const paddingBottom = 36; // room for day name + date below bars
+    const paddingLeft   = 8;
+    const paddingRight  = 8;
+    const chartH        = 100; // max bar height
+    const barGap        = 12;
+    const nBars         = entries.length;
+
+    // Fixed bar width — comfortable on all screen sizes, scrolls on small screens
+    const containerW = dailyEl.clientWidth || 500;
+    const minBarW = 52;  // never goes below this — chart scrolls instead
+    const naturalBarW = Math.floor((containerW - paddingLeft - paddingRight - barGap * (nBars - 1)) / nBars);
+    const barW = Math.max(minBarW, naturalBarW);
+    const svgW = paddingLeft + paddingRight + nBars * barW + barGap * (nBars - 1);
+    const svgH = paddingTop + chartH + paddingBottom;
+
+    let svgBars = '';
+    entries.forEach(([date, count], i) => {
+      const isToday = date === serverToday;
+      const dayObj   = new Date(date + 'T00:00:00');
+      const dayLabel = isToday ? 'Today' : dayNames[dayObj.getDay()];
+      const dateLabel = date.slice(5); // MM-DD
+
+      const barH = count > 0 ? Math.max(6, (count / dmax) * chartH) : 4;
+      const x    = paddingLeft + i * (barW + barGap);
+      const barY = paddingTop + (chartH - barH);
+
+      // Bar gradient id per bar
+      const gradId = `bg${i}`;
+      const barColor     = isToday ? '#2e7dd1' : '#93c5e8';
+      const barColorTop  = isToday ? '#4e9de8' : '#b8d9f5';
+      const emptyColor   = '#edf2f8';
+      const isEmpty      = count === 0;
+
+      // Gradient defs
+      svgBars += `<defs>
+        <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${isEmpty ? emptyColor : barColorTop}"/>
+          <stop offset="100%" stop-color="${isEmpty ? emptyColor : barColor}"/>
+        </linearGradient>
+      </defs>`;
+
+      svgBars += `<g class="daily-bar-group${isToday ? ' focused-today' : ''}" onclick="focusDailyBar(this, event)" style="cursor:pointer;">`;
+
+      // Background column (subtle hit area + visual guide)
+      svgBars += `<rect x="${x}" y="${paddingTop}" width="${barW}" height="${chartH}" rx="6" fill="${isToday ? 'rgba(46,125,209,0.06)' : 'rgba(0,0,0,0)'}" style="pointer-events:none;"/>`;
+
+      // Actual bar
+      svgBars += `<rect x="${x}" y="${barY}" width="${barW}" height="${barH}" rx="5" fill="url(#${gradId})">
+        <title>${date}: ${count} word${count !== 1 ? 's' : ''}</title>
+      </rect>`;
+
+      // Count label above bar (only if count > 0)
+      if (count > 0) {
+        svgBars += `<text x="${x + barW / 2}" y="${barY - 7}" text-anchor="middle" font-size="11" font-weight="700" fill="${isToday ? '#1a5fa8' : '#4a7aa8'}" style="pointer-events:none;">${count}</text>`;
+      }
+
+      // Day name (Mon, Tue … Today)
+      svgBars += `<text x="${x + barW / 2}" y="${paddingTop + chartH + 16}" text-anchor="middle" font-size="11" font-weight="${isToday ? '700' : '500'}" fill="${isToday ? '#2e7dd1' : '#6b84a0'}" style="pointer-events:none;">${dayLabel}</text>`;
+
+      // Date below day name
+      svgBars += `<text x="${x + barW / 2}" y="${paddingTop + chartH + 30}" text-anchor="middle" font-size="9.5" fill="${isToday ? '#5ba0d8' : '#a0b4c8'}" style="pointer-events:none;">${dateLabel}</text>`;
+
+      svgBars += `</g>`;
+    });
+
+    dailyEl.innerHTML = `<svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}" class="daily-chart-svg" style="display:block;min-width:${svgW}px;height:${svgH}px;overflow:visible;">${svgBars}</svg>`;
+    // Scroll to the latest (rightmost) bar — today is always last
+    requestAnimationFrame(() => { dailyEl.scrollLeft = dailyEl.scrollWidth; });
+  }
 
   // Most opened list
   const moEl = document.getElementById('most-opened-list');
@@ -3739,6 +3812,17 @@ async function loadCatsForFilter() {
     if(wordCatSel) wordCatSel.innerHTML += `<option value="${c.id}">${esc(c.name)}</option>`;
     if(bulkCatSel) bulkCatSel.innerHTML += `<option value="${c.id}">${esc(c.name)}</option>`;
   });
+
+  // Auto-apply ?cat= filter from URL (set by category page click)
+  const urlParams = new URLSearchParams(window.location.search);
+  const catParam = urlParams.get('cat');
+  if (catParam && sel) {
+    sel.value = catParam;
+    // Clean URL without reloading
+    const cleanUrl = window.location.protocol + '//' + window.location.host + window.location.pathname + '?page=words';
+    window.history.replaceState({}, '', cleanUrl);
+    loadWords();
+  }
 }
 
 async function loadTagsForFilter() {
@@ -4291,14 +4375,14 @@ function renderCats(cats) {
     return;
   }
   el.innerHTML = cats.map(c => `
-    <div class="cat-card">
+    <div class="cat-card" onclick="goToCategoryWords(${c.id})" title="View words in ${esc(c.name)}" style="cursor:pointer;">
       <div class="cat-color-dot" style="background:${c.color}">${esc(c.name.slice(0,1).toUpperCase())}</div>
       <div class="cat-info">
         <div class="cat-name">${esc(c.name)}</div>
         <div class="cat-desc">${esc(c.description||'')}</div>
         <div class="cat-count">${c.word_count} word${c.word_count!==1?'s':''}</div>
       </div>
-      <div class="cat-actions">
+      <div class="cat-actions" onclick="event.stopPropagation()">
         <button class="btn btn-icon btn-ghost" onclick="editCat(${c.id},'${esc(c.name)}','${esc(c.description||'')}','${c.color}')" title="Edit">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -4308,6 +4392,9 @@ function renderCats(cats) {
       </div>
     </div>
   `).join('');
+}
+function goToCategoryWords(catId) {
+  location.href = '?page=words&cat=' + catId;
 }
 function openCatModal() {
   document.getElementById('cat-modal-title').textContent = 'New Category';
