@@ -1,7 +1,7 @@
 <div align="center">
   
   <!-- You can replace the src below with your actual logo URL -->
-  <img src="[https://i.ibb.co/4wFG8GqJ/Screenshot-20260329-171925.png](https://i.ibb.co/1fRf4ybm/68747470733a2f2f692e6962622e636f2f347746473847714a2f53637265656e73686f742d32303236303332392d31373139.png)" alt="LexiVault Logo" width="120">
+  <img src="https://i.ibb.co/1fRf4ybm/68747470733a2f2f692e6962622e636f2f347746473847714a2f53637265656e73686f742d32303236303332392d31373139.png" alt="LexiVault Logo" width="120">
 
   <h1>LexiVault</h1>
   <p><b>Your Professional, Self-Hosted Vocabulary Management System</b></p>
