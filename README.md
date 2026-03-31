@@ -113,15 +113,17 @@ LexiVault includes a public-facing portal allowing non-logged-in users to search
 | Parameter | Type | Description |
 | :--- | :--- | :--- |
 | `pbw` | `string` | The search term (e.g., `?pbw=Ephemeral`). |
-| `format` | `string` | Output format: `json` (default) or `html`. |
+| `format` | `string` | Output format: `html` (default) or `json`. |
 | `category` | `int/string`| Filter by exact Category ID or Category Name. |
 | `word_type` | `string` | Filter by Word Class / Part of Speech (e.g., `Noun`). |
 
 ### 💡 API Examples
 - **Basic JSON Search:** `?pbw=Ephemeral&format=json`
-- **Fetch by Category:** `?category=Science&format=json`
-- **Type Filter:** `?word_type=Adjective&format=html`
-- **Combined Filter:** `?pbw=Light&category=Literature&word_type=Noun`
+- **View All words in a category** `?pbw&category=Biology`
+- **View All words in word type** `?pbw&word_type=Noun`
+- **Fetch by Category:** `?pbw=Hi&category=General`
+- **Type Filter:** `?pbw&word_type=Adjective&format=html`
+- **Seach word by combined filter:** `?pbw=Hi&category=General&word_type=Noun`
 
 > *Note: If an authenticated admin clicks a public search link, LexiVault intelligently redirects them to their internal, editable word library.*
 
