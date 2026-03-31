@@ -2,7 +2,8 @@
 /**
  * LexiVault - Professional Vocabulary Management System
  * Single-file PHP Application
- * Storage: MySQL Database
+ * Storage: MySQL Database only
+ * Developer: Vineet Pratap Singh (psvineet@zohomail.in | https://admin.xo.je/)
  */
 
 // ============================================================
@@ -80,7 +81,7 @@ if (isset($_GET['api']) && $_GET['api'] === 'setup') {
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password VARCHAR(255), name VARCHAR(100), email VARCHAR(100), created_at DATETIME, last_login DATETIME)");
         $pdo->exec("CREATE TABLE IF NOT EXISTS categories (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), description TEXT, color VARCHAR(20))");
-        $pdo->exec("CREATE TABLE IF NOT EXISTS words (id INT AUTO_INCREMENT PRIMARY KEY, term VARCHAR(255), definition TEXT, pronunciation VARCHAR(100), part_of_speech VARCHAR(50), notes TEXT, category_id INT, category_name VARCHAR(100), tags TEXT, difficulty VARCHAR(20), source VARCHAR(100), date_tag DATE, created_at DATETIME, updated_at DATETIME, last_reviewed DATETIME, review_count INT DEFAULT 0, mastered TINYINT(1) DEFAULT 0, starred TINYINT(1) DEFAULT 0)");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS words (id INT AUTO_INCREMENT PRIMARY KEY, term VARCHAR(255), definition TEXT, pronunciation VARCHAR(100), word_class VARCHAR(100), notes TEXT, category_id INT, category_name VARCHAR(100), tags TEXT, difficulty VARCHAR(20), source VARCHAR(100), date_tag DATE, created_at DATETIME, updated_at DATETIME, last_reviewed DATETIME, review_count INT DEFAULT 0, mastered TINYINT(1) DEFAULT 0, starred TINYINT(1) DEFAULT 0)");
         $pdo->exec("CREATE TABLE IF NOT EXISTS settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value TEXT)");
 
         $hash = password_hash($adminPass, PASSWORD_BCRYPT);
@@ -141,6 +142,14 @@ if ($isSetup) {
         $appSettings = getSettings();
         if (!empty($appSettings['timezone'])) date_default_timezone_set($appSettings['timezone']);
         else date_default_timezone_set('UTC');
+
+        // Seamlessly migrate existing database columns
+        try {
+            $colCheck = db()->query("SHOW COLUMNS FROM words LIKE 'part_of_speech'")->fetch();
+            if ($colCheck) {
+                db()->exec("ALTER TABLE words CHANGE part_of_speech word_class VARCHAR(100)");
+            }
+        } catch (Exception $e) {}
     } catch (Exception $e) {}
 }
 function getUsers() {
@@ -188,15 +197,41 @@ function saveWordObj($w) {
     $db = db(); $tags = json_encode($w['tags'] ?? []);
     $m = empty($w['mastered']) ? 0 : 1; $s = empty($w['starred']) ? 0 : 1; $rc = (int)($w['review_count'] ?? 0);
     if (!empty($w['id'])) {
-        $db->prepare("UPDATE words SET term=?, definition=?, pronunciation=?, part_of_speech=?, notes=?, category_id=?, category_name=?, tags=?, difficulty=?, source=?, updated_at=?, review_count=?, mastered=?, starred=?, last_reviewed=? WHERE id=?")->execute([
-            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', date('Y-m-d H:i:s'), $rc, $m, $s, $w['last_reviewed']??null, $w['id']
+        $db->prepare("UPDATE words SET term=?, definition=?, pronunciation=?, word_class=?, notes=?, category_id=?, category_name=?, tags=?, difficulty=?, source=?, updated_at=?, review_count=?, mastered=?, starred=?, last_reviewed=? WHERE id=?")->execute([
+            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['word_class']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', date('Y-m-d H:i:s'), $rc, $m, $s, $w['last_reviewed']??null, $w['id']
         ]);
         return $w;
     } else {
-        $db->prepare("INSERT INTO words (term, definition, pronunciation, part_of_speech, notes, category_id, category_name, tags, difficulty, source, date_tag, created_at, updated_at, review_count, mastered, starred) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")->execute([
-            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['part_of_speech']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', $w['date_tag']??date('Y-m-d'), $w['created_at']??date('Y-m-d H:i:s'), date('Y-m-d H:i:s'), $rc, $m, $s
-        ]);
-        $w['id'] = $db->lastInsertId(); return $w;
+        // ID Recycling: Find the first available ID to prevent gaps.
+        $recycled_id = null;
+        $stmt = $db->prepare("SELECT 1 FROM words WHERE id = 1");
+        $stmt->execute();
+        if (!$stmt->fetch()) {
+            $recycled_id = 1;
+        } else {
+            $stmt = $db->prepare("SELECT t1.id + 1 FROM words AS t1 LEFT JOIN words AS t2 ON t1.id + 1 = t2.id WHERE t2.id IS NULL ORDER BY t1.id LIMIT 1");
+            $stmt->execute();
+            $recycled_id = $stmt->fetchColumn();
+        }
+
+        $cols = ['term', 'definition', 'pronunciation', 'word_class', 'notes', 'category_id', 'category_name', 'tags', 'difficulty', 'source', 'date_tag', 'created_at', 'updated_at', 'review_count', 'mastered', 'starred'];
+        $params = [
+            $w['term'], $w['definition']??'', $w['pronunciation']??'', $w['word_class']??'', $w['notes']??'', $w['category_id']??0, $w['category_name']??'', $tags, $w['difficulty']??'medium', $w['source']??'', $w['date_tag']??date('Y-m-d'), $w['created_at']??date('Y-m-d H:i:s'), date('Y-m-d H:i:s'), $rc, $m, $s
+        ];
+
+        if ($recycled_id) {
+            array_unshift($cols, 'id');
+            array_unshift($params, $recycled_id);
+            $w['id'] = $recycled_id;
+        }
+
+        $sql = "INSERT INTO words (" . implode(', ', $cols) . ") VALUES (" . rtrim(str_repeat('?,', count($cols)), ',') . ")";
+        $db->prepare($sql)->execute($params);
+
+        if (!$recycled_id) {
+            $w['id'] = $db->lastInsertId();
+        }
+        return $w;
     }
 }
 function deleteWordObj($id) {
@@ -353,59 +388,99 @@ if (isset($_GET['pbw'])) {
     if (ob_get_length()) ob_clean();
     header('Access-Control-Allow-Origin: *');
     header('Cache-Control: no-cache, no-store, must-revalidate');
+    
     $term = trim($_GET['pbw'] ?? '');
     $format = $_GET['format'] ?? 'text';
+    $category = $_GET['category'] ?? '';
+    $word_type = $_GET['word_type'] ?? '';
 
-    if (empty($term)) {
-        if ($format === 'json') {
-            header('Content-Type: application/json; charset=UTF-8');
-            echo json_encode(['success' => false, 'message' => 'Term is required.']);
-        } else {
-            header('Content-Type: text/plain; charset=UTF-8');
-            echo "Term is required.";
-        }
+    if (empty($term) && empty($category) && empty($word_type)) {
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode(['success' => false, 'message' => 'A search term, category, or word type is required.']);
         exit;
     }
 
     try {
-        $stmt = db()->prepare("
-            SELECT * FROM words
-            WHERE term LIKE :like_term
-            ORDER BY
-                CASE
-                    WHEN term = :exact_term THEN 1
-                    WHEN term LIKE :starts_with_term THEN 2
-                    ELSE 3
-                END,
-                LENGTH(term) ASC,
-                term ASC
-            LIMIT 1
-        ");
-        $stmt->execute([':like_term' => '%' . $term . '%', ':exact_term' => $term, ':starts_with_term' => $term . '%']);
-        $w = $stmt->fetch(PDO::FETCH_ASSOC);
+        $sql = "SELECT * FROM words";
+        $params = [];
+        $where_clauses = [];
+        $query_title_parts = [];
 
-        if ($w) {
+        if (!empty($term)) {
+            $where_clauses[] = "term LIKE :like_term";
+            $params[':like_term'] = '%' . $term . '%';
+            $query_title_parts[] = 'term "' . htmlspecialchars($term) . '"';
+        }
+
+        if (!empty($category)) {
+            if (is_numeric($category)) {
+                $where_clauses[] = "category_id = :category";
+                $params[':category'] = (int)$category;
+            } else {
+                $where_clauses[] = "category_name LIKE :category";
+                $params[':category'] = $category;
+            }
+            $query_title_parts[] = 'category "' . htmlspecialchars($category) . '"';
+        }
+
+        if (!empty($word_type)) {
+            $where_clauses[] = "word_class LIKE :word_type";
+            $params[':word_type'] = $word_type;
+            $query_title_parts[] = 'type "' . htmlspecialchars($word_type) . '"';
+        }
+
+        if (!empty($where_clauses)) {
+            $sql .= " WHERE " . implode(' AND ', $where_clauses);
+        }
+
+        if (!empty($term)) {
+            $sql .= " ORDER BY CASE WHEN term = :exact_term THEN 1 WHEN term LIKE :starts_with_term THEN 2 ELSE 3 END, LENGTH(term) ASC, term ASC";
+            $params[':exact_term'] = $term;
+            $params[':starts_with_term'] = $term . '%';
+        } else {
+            $sql .= " ORDER BY term ASC";
+        }
+
+        $stmt = db()->prepare($sql);
+        $stmt->execute($params);
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $query_title = implode(' and ', $query_title_parts);
+
+        if ($results) {
             if ($format === 'json') {
                 header('Content-Type: application/json; charset=UTF-8');
-                echo json_encode(['success' => true, 'word' => ['term' => $w['term'], 'pronunciation' => $w['pronunciation'] ?? '', 'part_of_speech' => $w['part_of_speech'] ?? '', 'definition' => strip_tags($w['definition'] ?? '')]]);
+                $output_words = [];
+                foreach ($results as $w) {
+                    $output_words[] = ['term' => $w['term'], 'pronunciation' => $w['pronunciation'] ?? '', 'word_class' => $w['word_class'] ?? '', 'definition' => strip_tags($w['definition'] ?? '')];
+                }
+                echo json_encode(['success' => true, 'words' => $output_words]);
             } else {
-                header('Content-Type: text/plain; charset=UTF-8');
-                echo "Word: " . $w['term'] . "\n";
-                if (!empty($w['pronunciation'])) echo "Pronunciation: " . $w['pronunciation'] . "\n";
-                if (!empty($w['part_of_speech'])) echo "Type: " . $w['part_of_speech'] . "\n";
-                echo "Definition: " . strip_tags($w['definition'] ?? '') . "\n";
+                header('Content-Type: text/html; charset=UTF-8');
+                echo '<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Search Results</title><style>body{font-family: sans-serif; padding: 1em; background: #f9f9f9;} a{color: #1e4d87; text-decoration: none; font-weight: bold;} a:hover{text-decoration: underline;} p{margin: 0 0 1em 0;}</style></head><body>';
+                echo '<h3>Found ' . count($results) . ' match(es) for ' . $query_title . ':</h3>';
+                foreach ($results as $w) {
+                    $link = isLoggedIn() ? '?page=words&view_id=' . $w['id'] : '?page=public_search&view_term=' . urlencode($w['term']);
+                    echo '<p><a href="' . $link . '">' . htmlspecialchars($w['term']) . '</a>';
+                    if (!empty($w['pronunciation'])) echo ' <i style="color:#555">(' . htmlspecialchars($w['pronunciation']) . ')</i>';
+                    if (!empty($w['word_class'])) echo ' - <small style="color:#777">' . htmlspecialchars($w['word_class']) . '</small>';
+                    echo '<br><span style="color:#333;font-size:0.9em">' . htmlspecialchars(strip_tags($w['definition'] ?? '')) . '</span>';
+                    echo '</p>';
+                }
+                echo '</body></html>';
             }
         } else {
             if ($format === 'json') {
                 header('Content-Type: application/json; charset=UTF-8');
-                echo json_encode(['success' => false, 'message' => 'Word not found.']);
+                echo json_encode(['success' => false, 'message' => 'No words found.']);
             } else {
-                header('Content-Type: text/plain; charset=UTF-8');
-                echo "Word not found.";
+                header('Content-Type: text/html; charset=UTF-8');
+                echo '<!DOCTYPE html><html lang="en"><head><title>Search Results</title><style>body{font-family: sans-serif; padding: 1em; background: #f9f9f9;}</style></head><body>';
+                echo '<p>No words found matching ' . $query_title . '.</p>';
+                echo '</body></html>';
             }
         }
     } catch (Exception $e) {
-        header('Content-Type: text/plain; charset=UTF-8');
+        header('Content-Type: text/html; charset=UTF-8');
         echo "An error occurred during lookup.";
     }
     exit;
@@ -495,6 +570,15 @@ if (isset($_GET['api'])) {
             $term = trim($data['term'] ?? '');
             if (empty($term)) jsonResponse(['success' => false, 'message' => 'Term is required']);
 
+            // Prevent duplicates on new word creation
+            if (empty($data['id'])) {
+                $stmt = db()->prepare("SELECT id FROM words WHERE LOWER(term) = LOWER(?)");
+                $stmt->execute([$term]);
+                if ($stmt->fetch()) {
+                    jsonResponse(['success' => false, 'message' => 'This word already exists in your vault.']);
+                }
+            }
+
             $w = [];
             $existing_word = null;
             if (!empty($data['id'])) {
@@ -509,7 +593,7 @@ if (isset($_GET['api'])) {
                 'term' => $term,
                 'definition' => $data['definition'] ?? '',
                 'pronunciation' => sanitize($data['pronunciation'] ?? ''),
-                'part_of_speech' => sanitize($data['part_of_speech'] ?? ''),
+                'word_class' => sanitize($data['word_class'] ?? ''),
                 'notes' => $data['notes'] ?? '',
                 'category_id' => (int)($data['category_id'] ?? 0),
                 'category_name' => $catMap[intval($data['category_id'] ?? 0)] ?? 'Uncategorized',
@@ -842,6 +926,10 @@ if (isset($_GET['api'])) {
         case 'random_word':
             $words = getWordsList();
             if (empty($words)) jsonResponse(['success' => false, 'message' => 'No words found']);
+            $excludeId = (int)($_GET['exclude_id'] ?? 0);
+            if ($excludeId && count($words) > 1) {
+                $words = array_values(array_filter($words, fn($w) => (int)$w['id'] !== $excludeId));
+            }
             $w = $words[array_rand($words)];
             jsonResponse(['success' => true, 'word' => $w]);
             break;
@@ -905,6 +993,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $page = $_GET['page'] ?? (isLoggedIn() ? 'dashboard' : 'login');
+if (isLoggedIn() && $page === 'public_search' && isset($_GET['view_term'])) {
+    try {
+        $term = $_GET['view_term'];
+        $stmt = db()->prepare("SELECT id FROM words WHERE term = ? LIMIT 1");
+        $stmt->execute([$term]);
+        $word = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($word) {
+            header('Location: ?page=words&view_id=' . $word['id']);
+            exit;
+        } else {
+            header('Location: ?page=words&q=' . urlencode($term) . '&focus_search=1');
+            exit;
+        }
+    } catch (Exception $e) {
+        // DB not ready or other error, just go to dashboard
+        header('Location: ?page=dashboard');
+        exit;
+    }
+}
+
 if (!isLoggedIn() && !in_array($page, ['login', 'public_search'])) {
     header('Location: ?page=login');
     exit;
@@ -1039,9 +1147,11 @@ body {
 }
 
 /* ---- SCROLLBAR ---- */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 5px; height: 0 !important; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--navy-200); border-radius: 3px; }
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar:horizontal { display: none !important; height: 0 !important; }
 
 /* ---- LOGIN PAGE ---- */
 .login-page {
@@ -1328,6 +1438,8 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 /* ---- HEADER ---- */
@@ -1370,12 +1482,15 @@ body {
   flex: 1;
   padding: 28px;
   max-width: 1400px;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* ---- STATS CARDS ---- */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -1820,7 +1935,7 @@ body {
   flex: 1;
 }
 .card-body { padding: 16px 18px; }
-#daily-chart.card-body { padding: 12px 14px 8px; min-height: 190px; }
+#daily-chart.card-body { padding: 12px 14px 8px; min-height: 220px; height: 220px; }
 
 /* ---- WORD DETAIL VIEW ---- */
 .word-detail {
@@ -1998,22 +2113,42 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 8px 4px 4px;
-  min-height: 190px;
+  padding: 16px 14px 12px;
+  min-height: 200px;
   display: flex;
   align-items: flex-end;
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: none;
+  background: transparent;
+  border-radius: 0 0 10px 10px;
 }
-#daily-chart::-webkit-scrollbar { display: none; } /* Chrome/Safari */
-.daily-chart-svg { display: block; overflow: visible; flex-shrink: 0; }
-.daily-bar-group { transition: opacity 0.2s ease; }
-.daily-bar-group:hover rect:last-of-type { opacity: 0.85; }
-.daily-chart-svg.has-focus .daily-bar-group { opacity: 0.25; }
+#daily-chart::-webkit-scrollbar { display: none; }
+
+.daily-chart-svg {
+  display: block;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+/* Default state */
+.daily-bar-group {
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+}
+
+/* Hover */
+.daily-bar-group:hover .bar-hover-bg { opacity: 1 !important; }
+.daily-bar-group:hover .bar-rect { filter: brightness(1.07); }
+
+/* Focus: dim all, highlight clicked */
+.daily-chart-svg.has-focus .daily-bar-group { opacity: 0.3; }
 .daily-chart-svg.has-focus .daily-bar-group.focused { opacity: 1; }
-.daily-chart-svg.has-focus .daily-bar-group.focused-today { opacity: 1; }
+.daily-chart-svg.has-focus .daily-bar-group.focused .bar-rect {
+  filter: brightness(1.06);
+}
+.daily-chart-svg.has-focus .daily-bar-group.bar-today:not(.focused) { opacity: 0.4; }
 
 @media (max-width: 768px) {
-  #daily-chart { padding: 8px 2px 4px; min-height: 180px; }
+  #daily-chart { padding: 12px 8px 10px; min-height: 185px; }
 }
 
 /* ---- CATEGORIES ---- */
@@ -2082,6 +2217,13 @@ body {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  display: block;
+  scrollbar-width: none;
+}
+.table-responsive::-webkit-scrollbar { display: none; }
+#words-table-view .card {
+  overflow: hidden;
+  min-width: 0;
 }
 .wotd-body {
   display: flex;
@@ -2104,6 +2246,9 @@ body {
   text-overflow: ellipsis;
   flex: 1;
   min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--navy-900);
 }
 .dash-tag {
   font-size: 11px;
@@ -2155,6 +2300,27 @@ body {
   .word-detail-header { padding: 20px 24px; }
   .word-detail-body { padding: 20px 24px; }
   .word-detail-header .term { font-size: 28px; }
+  .page-content { padding: 16px 12px; }
+  
+  #bulk-action-bar {
+    width: calc(100vw - 32px);
+    padding: 10px 14px;
+    border-radius: 30px;
+    flex-wrap: nowrap;
+    gap: 8px;
+    bottom: 16px;
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+  #bulk-count {
+    width: auto;
+    text-align: left;
+    margin-bottom: 0;
+    font-size: 15px !important;
+  }
+  .bulk-divider { display: block !important; }
+  #bulk-action-bar .btn-sm { flex: none; min-width: auto; margin: 0; padding: 6px 10px; }
+  #bulk-action-bar .btn-icon { position: static; margin-left: auto !important; }
 }
 @media (max-width: 400px) {
     .words-grid { grid-template-columns: 1fr; }
@@ -2623,7 +2789,18 @@ function escapeRegExp(string) {
 }
 
 // --- Event Listeners ---
-document.addEventListener('DOMContentLoaded', renderRecentSearches);
+document.addEventListener('DOMContentLoaded', () => {
+    renderRecentSearches();
+    const urlParams = new URLSearchParams(window.location.search);
+    const viewTerm = urlParams.get('view_term');
+    if (viewTerm) {
+        document.getElementById('public-search-input').value = viewTerm;
+        doPublicSearch();
+        // Clean URL to avoid confusion on subsequent searches
+        const cleanUrl = window.location.protocol + '//' + window.location.host + window.location.pathname + '?page=public_search';
+        window.history.replaceState({}, '', cleanUrl);
+    }
+});
 
 document.getElementById('public-search-input').addEventListener('keydown', function(e) {
     let x = document.getElementById("autocomplete-list");
@@ -2666,15 +2843,15 @@ async function doPublicSearch() {
         const data = await res.json();
         
         resDiv.style.display = 'block';
-        if (data.success && data.word) {
+        if (data.success && data.words && data.words.length > 0) {
             addRecentSearch(term); // Add to recent searches on success
-            const w = data.word;
+            const w = data.words[0]; // Show the first, best match
             resDiv.innerHTML = `
                 <div style="margin-bottom: 16px; border-bottom: 1px solid var(--gray-200); padding-bottom: 16px;">
                     <h2 style="color: var(--navy-900); font-size: 28px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">${escapeHtml(w.term)}</h2>
                     <div style="margin-top: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         ${w.pronunciation ? `<span style="color: var(--gray-500); font-style: italic; font-size: 15px;">${escapeHtml(w.pronunciation)}</span>` : ''}
-                        ${w.part_of_speech ? `<span style="background: var(--navy-50); color: var(--navy-700); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(w.part_of_speech)}</span>` : ''}
+                        ${w.word_class ? `<span style="background: var(--navy-50); color: var(--navy-700); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(w.word_class)}</span>` : ''}
                     </div>
                 </div>
                 <div style="font-size: 15px; color: var(--gray-700); line-height: 1.6;">
@@ -2784,14 +2961,13 @@ function escapeHtml(unsafe) {
       <div class="header-actions">
         <?php if ($page === 'words'): ?>
         <button class="btn btn-primary" onclick="openAddWord()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Word
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span class="hide-mobile">Add Word</span>
         </button>
-        <button class="btn btn-secondary" onclick="printVocabulary()" title="Print List" style="margin-left: auto;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-            <polyline points="6 9 6 2 18 2 18 9"></polyline>
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect>
-          </svg>
+        <?php endif; ?>
+        <?php if ($page === 'words'): ?>
+        <button class="btn btn-secondary" onclick="printVocabulary()" title="Print List">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>
         <?php endif; ?>
       </div>
@@ -2854,7 +3030,7 @@ function escapeHtml(unsafe) {
           <div class="card-body" id="most-opened-list" style="padding:0"></div>
         </div>
         <div class="card">
-          <div class="card-header"><h3 style="display:flex;align-items:center;gap:6px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--success)"><polyline points="20 6 9 17 4 12"/></svg> Recently Learned</h3></div>
+          <div class="card-header"><h3 style="display:flex;align-items:center;gap:6px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color:var(--accent)"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg> Recently Learned</h3></div>
           <div class="card-body" id="today-learned-list" style="padding:0"></div>
         </div>
       </div>
@@ -2880,6 +3056,9 @@ function escapeHtml(unsafe) {
       </div>
       <select class="filter-select" id="cat-filter" onchange="loadWords()">
         <option value="">All Categories</option>
+      </select>
+      <select class="filter-select" id="word-type-filter" onchange="loadWords()">
+        <option value="">All Word Types</option>
       </select>
       <select class="filter-select" id="tag-filter" onchange="loadWords()">
         <option value="">All Tags</option>
@@ -3258,14 +3437,11 @@ function escapeHtml(unsafe) {
       </div>
       <div class="form-row">
         <div class="form-field">
-          <label>Part of Speech</label>
-          <select id="word-pos">
+          <label>Word Class / Type</label>
+          <select id="word-class" onchange="toggleManualClass()">
             <option value="">Select...</option>
-            <option>noun</option><option>verb</option><option>adjective</option>
-            <option>adverb</option><option>pronoun</option><option>preposition</option>
-            <option>conjunction</option><option>interjection</option><option>phrase</option>
-            <option>abbreviation</option><option>term</option><option>concept</option>
           </select>
+          <input type="text" id="word-class-manual" placeholder="Enter custom word class..." style="display:none; margin-top:8px;">
         </div>
         <div class="form-field">
           <label>Category</label>
@@ -3363,13 +3539,25 @@ function escapeHtml(unsafe) {
 
 <!-- ======= BULK ACTIONS UI ======= -->
 <div id="bulk-action-bar">
-  <span id="bulk-count" style="font-weight:600;font-size:14px">0 selected</span>
-  <div style="width:1px;height:20px;background:rgba(255,255,255,0.2)"></div>
-  <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:white;border:none" onclick="bulkAction('categorize')">Categorize</button>
-  <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:white;border:none" onclick="bulkAction('master')">Master</button>
-  <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:white;border:none" onclick="bulkAction('star')">Star</button>
-  <button class="btn btn-sm btn-danger" onclick="bulkAction('delete')">Delete</button>
-  <button class="btn btn-icon" style="background:none;color:var(--gray-400);border:none;margin-left:8px" onclick="clearSelection()" title="Clear Selection">
+  <span id="bulk-count" style="font-weight:600;font-size:14px;white-space:nowrap">0 selected</span>
+  <div class="bulk-divider" style="width:1px;height:20px;background:rgba(255,255,255,0.2);margin:0 4px"></div>
+  <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:white;border:none" onclick="bulkAction('categorize')" title="Categorize">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    <span class="hide-mobile">Categorize</span>
+  </button>
+  <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:white;border:none" onclick="bulkAction('master')" title="Master">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="20 6 9 17 4 12"/></svg>
+    <span class="hide-mobile">Master</span>
+  </button>
+  <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:white;border:none" onclick="bulkAction('star')" title="Star">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    <span class="hide-mobile">Star</span>
+  </button>
+  <button class="btn btn-sm btn-danger" onclick="bulkAction('delete')" title="Delete">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+    <span class="hide-mobile">Delete</span>
+  </button>
+  <button class="btn btn-icon" style="background:none;color:var(--gray-400);border:none;margin-left:auto" onclick="clearSelection()" title="Clear Selection">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>
 </div>
@@ -3410,9 +3598,69 @@ let importData = null;
 let allAvailableTags = [];
 
 // ============================================================
+// WORD CLASSES & DROPDOWN RENDER
+// ============================================================
+const BASE_WORD_CLASSES = [ // Standardized, advanced-level word types
+  'Abbreviation / Acronym', 'Concept / Theory', 'Framework / Model', 'Algorithm / Method',
+  'Protocol / Procedure', 'Mechanism of Action', 'Active Ingredient',
+  'Excipient / Agent', 'Biomarker / Indicator', 'Diagnostic / Test',
+  'Reagent / Compound'
+];
+
+function populateWordClassDropdown(selectedValue = '') {
+  const sel = document.getElementById('word-class');
+  const manualInput = document.getElementById('word-class-manual');
+  if(!sel) return;
+
+  const usedClasses = allWordsCache ? [...new Set(allWordsCache.map(w => w.word_class).filter(Boolean))] : [];
+  const customClasses = usedClasses.filter(c => !BASE_WORD_CLASSES.includes(c));
+
+  let html = '<option value="">Select...</option>';
+  BASE_WORD_CLASSES.forEach(c => { html += `<option value="${esc(c)}">${esc(c)}</option>`; });
+
+  if (customClasses.length > 0) {
+    html += '<optgroup label="Custom / Saved">';
+    customClasses.sort().forEach(c => { html += `<option value="${esc(c)}">${esc(c)}</option>`; });
+    html += '</optgroup>';
+  }
+
+  html += '<option value="__OTHER__">Other (Manual Input)...</option>';
+  sel.innerHTML = html;
+
+  if (selectedValue) {
+    if (BASE_WORD_CLASSES.includes(selectedValue) || customClasses.includes(selectedValue)) {
+      sel.value = selectedValue;
+      manualInput.style.display = 'none';
+      manualInput.value = '';
+    } else {
+      sel.value = '__OTHER__';
+      manualInput.style.display = 'block';
+      manualInput.value = selectedValue;
+    }
+  } else {
+    sel.value = '';
+    manualInput.style.display = 'none';
+    manualInput.value = '';
+  }
+}
+
+function toggleManualClass() {
+  const sel = document.getElementById('word-class');
+  const manualInput = document.getElementById('word-class-manual');
+  if (sel.value === '__OTHER__') {
+    manualInput.style.display = 'block';
+    manualInput.focus();
+  } else {
+    manualInput.style.display = 'none';
+  }
+}
+
+// ============================================================
 // QUILL INIT
 // ============================================================
-<?php if ($page === 'words'): ?>
+// ============================================================
+// QUILL + WORD MODAL INIT (all pages)
+// ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   try {
     const toolbarOptions = [
@@ -3428,22 +3676,32 @@ document.addEventListener('DOMContentLoaded', () => {
       quillDef.on('blur', () => document.getElementById('def-quill-wrap').classList.remove('focused'));
     }
   } catch (e) { console.error('Quill init failed', e); }
-  
+
+<?php if ($page === 'words'): ?>
   loadWords();
   loadCatsForFilter();
-  loadTagsForFilter();
   loadWordCount();
   
   loadWords().then(() => {
     const params = new URLSearchParams(window.location.search);
-    if(params.has('view_id')) {
+    if (params.has('q')) {
+      const searchEl = document.getElementById('search-input');
+      if (searchEl) { searchEl.value = decodeURIComponent(params.get('q')); loadWords(); }
+      window.history.replaceState({}, '', window.location.pathname + '?page=words');
+    }
+    if (params.has('focus_search')) {
+      const searchEl = document.getElementById('search-input');
+      if (searchEl) setTimeout(() => searchEl.focus(), 200);
+      window.history.replaceState({}, '', window.location.pathname + '?page=words');
+    }
+    if (params.has('view_id')) {
       viewWord(parseInt(params.get('view_id')));
-      const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?page=words";
-      window.history.replaceState({path:newUrl}, '', newUrl);
+      window.history.replaceState({}, '', window.location.pathname + '?page=words');
     }
   });
-});
 <?php endif; ?>
+});
+
 
 // ============================================================
 // SIDEBAR
@@ -3570,22 +3828,55 @@ async function loadDashboard() {
   document.getElementById('stat-today').textContent = s.today;
   document.getElementById('stat-week').textContent = s.week;
   
-  // Word of the day
-  renderWOTD(s.wotd);
+  // Word of the day — use today's stored word if available, else server's seeded pick
+  renderWOTD(getStoredWOTD() || s.wotd);
 
   // Cat chart
   const catEl = document.getElementById('cat-chart');
   if (Object.keys(s.categories).length === 0) {
     catEl.innerHTML = '<div class="empty-state" style="padding:30px"><p>No data yet</p></div>';
   } else {
-    const max = Math.max(...Object.values(s.categories));
-    let html = '<div class="chart-bar-wrap">';
-    Object.entries(s.categories).sort((a,b)=>b[1]-a[1]).forEach(([name,count]) => {
+    const sorted = Object.entries(s.categories).sort((a,b)=>b[1]-a[1]);
+    const max = Math.max(...sorted.map(e=>e[1]));
+    const top5 = sorted.slice(0,6);
+    const rest = sorted.slice(6);
+    let html = '<div class="chart-bar-wrap" id="cat-bar-main">';
+    top5.forEach(([name,count]) => {
       const pct = max > 0 ? (count/max*100) : 0;
       html += `<div class="chart-bar-item"><div class="chart-bar-label">${esc(name)}</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${pct}%"></div></div><div class="chart-bar-count">${count}</div></div>`;
     });
     html += '</div>';
+    if (rest.length > 0) {
+      html += '<div class="chart-bar-wrap" id="cat-bar-extra" style="display:none;">';
+      rest.forEach(([name,count]) => {
+        const pct = max > 0 ? (count/max*100) : 0;
+        html += `<div class="chart-bar-item"><div class="chart-bar-label">${esc(name)}</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${pct}%"></div></div><div class="chart-bar-count">${count}</div></div>`;
+      });
+      html += '</div>';
+    }
     catEl.innerHTML = html;
+    // Inject expand button into card-header
+    const catCardHeader = catEl.closest('.card').querySelector('.card-header');
+    if (rest.length > 0 && catCardHeader && !catCardHeader.querySelector('#cat-expand-btn')) {
+      const btn = document.createElement('button');
+      btn.id = 'cat-expand-btn';
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+      btn.style.cssText = 'margin-left:auto;background:var(--gray-100);border:none;border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--gray-600);transition:all 0.2s;flex-shrink:0;';
+      btn.title = 'Show all categories';
+      let expanded = false;
+      btn.onclick = () => {
+        expanded = !expanded;
+        document.getElementById('cat-bar-extra').style.display = expanded ? 'flex' : 'none';
+        document.getElementById('cat-bar-extra').style.marginTop = expanded ? '10px' : '0';
+        btn.innerHTML = expanded
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="5" y1="12" x2="19" y2="12"/></svg>`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+        btn.style.background = expanded ? 'var(--navy-50)' : 'var(--gray-100)';
+        btn.style.color = expanded ? 'var(--accent)' : 'var(--gray-600)';
+        btn.title = expanded ? 'Show less' : 'Show all categories';
+      };
+      catCardHeader.appendChild(btn);
+    }
   }
   // Daily chart — last 7 days (enforced on client side too)
   const dailyEl = document.getElementById('daily-chart');
@@ -3600,75 +3891,135 @@ async function loadDashboard() {
     const dmax = Math.max(...entries.map(e => e[1]), 1);
     const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-    // Layout constants
-    const paddingTop    = 28; // room for count label above tallest bar
-    const paddingBottom = 36; // room for day name + date below bars
-    const paddingLeft   = 8;
-    const paddingRight  = 8;
-    const chartH        = 100; // max bar height
-    const barGap        = 12;
+    const paddingTop    = 34;
+    const paddingBottom = 44;
+    const paddingLeft   = 10;
+    const paddingRight  = 10;
+    // Use actual container height so bars fill the full card — min 100 as fallback
+    const containerH    = dailyEl.clientHeight || 0;
+    const chartH        = Math.max(100, containerH - paddingTop - paddingBottom - 4);
     const nBars         = entries.length;
+    const gridCount     = 4;
 
-    // Fixed bar width — comfortable on all screen sizes, scrolls on small screens
-    const containerW = dailyEl.clientWidth || 500;
-    const minBarW = 52;  // never goes below this — chart scrolls instead
-    const naturalBarW = Math.floor((containerW - paddingLeft - paddingRight - barGap * (nBars - 1)) / nBars);
-    const barW = Math.max(minBarW, naturalBarW);
-    const svgW = paddingLeft + paddingRight + nBars * barW + barGap * (nBars - 1);
-    const svgH = paddingTop + chartH + paddingBottom;
+    const containerW  = dailyEl.clientWidth || 320;
+    const colW        = Math.max(40, Math.floor((containerW - paddingLeft - paddingRight) / nBars));
+    const svgW        = paddingLeft + paddingRight + nBars * colW;
+    const barW        = 18; // Slimmer bars
+    const svgH        = paddingTop + chartH + paddingBottom;
+    const uid         = 'dc' + Date.now();
 
-    let svgBars = '';
+    let defs = `<defs>`;
+    entries.forEach(([date, count], i) => {
+      const isToday = date === serverToday;
+      const isEmpty = count === 0;
+      // App palette matching stats cards
+      const top = isEmpty ? '#f7f9fc' : (isToday ? '#3d8fe6' : '#7ab3e8');
+      const bot = isEmpty ? '#eef2f8' : (isToday ? '#1e4d87' : '#2a6baf');
+      defs += `<linearGradient id="${uid}_g${i}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${top}"/>
+        <stop offset="100%" stop-color="${bot}"/>
+      </linearGradient>`;
+      if (isToday) {
+        defs += `<filter id="${uid}_glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#2e7dd1" flood-opacity="0.35"/>
+        </filter>`;
+      }
+    });
+    defs += `</defs>`;
+
+    let svg = defs;
+
+    // Grid lines — clean light gray, dashed for inner lines
+    for (let g = 0; g <= gridCount; g++) {
+      const lineY   = paddingTop + (chartH / gridCount) * g;
+      const isBase  = g === gridCount;
+      svg += `<line
+        x1="${paddingLeft}" y1="${lineY}"
+        x2="${svgW - paddingRight}" y2="${lineY}"
+        stroke="${isBase ? '#c5d3e8' : '#eef2f8'}"
+        stroke-width="${isBase ? 2 : 1}"
+        stroke-dasharray="${isBase ? 'none' : '4,4'}"
+        style="pointer-events:none;"/>`;
+    }
+
     entries.forEach(([date, count], i) => {
       const isToday = date === serverToday;
       const dayObj   = new Date(date + 'T00:00:00');
       const dayLabel = isToday ? 'Today' : dayNames[dayObj.getDay()];
-      const dateLabel = date.slice(5); // MM-DD
+      const dateLabel = date.slice(5);
 
-      const barH = count > 0 ? Math.max(6, (count / dmax) * chartH) : 4;
-      const x    = paddingLeft + i * (barW + barGap);
-      const barY = paddingTop + (chartH - barH);
+      const barH  = count > 0 ? Math.max(8, (count / dmax) * chartH) : 0;
+      const centerX = paddingLeft + i * colW + colW / 2;
+      const x       = centerX - barW / 2;
+      const barY  = paddingTop + chartH - barH;
+      const barRx = 6;
 
-      // Bar gradient id per bar
-      const gradId = `bg${i}`;
-      const barColor     = isToday ? '#2e7dd1' : '#93c5e8';
-      const barColorTop  = isToday ? '#4e9de8' : '#b8d9f5';
-      const emptyColor   = '#edf2f8';
-      const isEmpty      = count === 0;
+      // Text colors from app palette
+      const dayColor  = isToday ? '#1e4d87' : '#6e87a8';   // navy-500 vs gray-500
+      const dateColor = isToday ? '#2a6baf' : '#9bafc9';   // navy-400 vs gray-400
 
-      // Gradient defs
-      svgBars += `<defs>
-        <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="${isEmpty ? emptyColor : barColorTop}"/>
-          <stop offset="100%" stop-color="${isEmpty ? emptyColor : barColor}"/>
-        </linearGradient>
-      </defs>`;
+      svg += `<g class="daily-bar-group${isToday ? ' bar-today' : ''}" onclick="focusDailyBar(this,event)">`;
 
-      svgBars += `<g class="daily-bar-group${isToday ? ' focused-today' : ''}" onclick="focusDailyBar(this, event)" style="cursor:pointer;">`;
+      // Full-column hover hit area (invisible)
+      svg += `<rect x="${centerX - colW/2}" y="${paddingTop - 4}" width="${colW}" height="${chartH + 8}" fill="transparent"/>`;
 
-      // Background column (subtle hit area + visual guide)
-      svgBars += `<rect x="${x}" y="${paddingTop}" width="${barW}" height="${chartH}" rx="6" fill="${isToday ? 'rgba(46,125,209,0.06)' : 'rgba(0,0,0,0)'}" style="pointer-events:none;"/>`;
+      // Hover background
+      svg += `<rect class="bar-hover-bg" x="${centerX - colW/2 + 2}" y="${paddingTop}" width="${colW - 4}" height="${chartH}" rx="8"
+        fill="${isToday ? 'rgba(46,125,209,0.08)' : 'rgba(110,135,168,0.06)'}"
+        style="pointer-events:none;opacity:0;transition:opacity 0.2s;"/>`;
 
-      // Actual bar
-      svgBars += `<rect x="${x}" y="${barY}" width="${barW}" height="${barH}" rx="5" fill="url(#${gradId})">
-        <title>${date}: ${count} word${count !== 1 ? 's' : ''}</title>
-      </rect>`;
-
-      // Count label above bar (only if count > 0)
+      // Bar
       if (count > 0) {
-        svgBars += `<text x="${x + barW / 2}" y="${barY - 7}" text-anchor="middle" font-size="11" font-weight="700" fill="${isToday ? '#1a5fa8' : '#4a7aa8'}" style="pointer-events:none;">${count}</text>`;
+        const pathD = `M ${x},${barY + barRx} A ${barRx},${barRx} 0 0 1 ${x + barRx},${barY} L ${x + barW - barRx},${barY} A ${barRx},${barRx} 0 0 1 ${x + barW},${barY + barRx} L ${x + barW},${barY + barH} L ${x},${barY + barH} Z`;
+        svg += `<path class="bar-rect"
+          d="${pathD}"
+          fill="url(#${uid}_g${i})"
+          ${isToday ? `filter="url(#${uid}_glow)"` : ''}
+          style="pointer-events:none;transition:filter 0.2s ease, transform 0.2s ease;">
+          <title>${date}: ${count} word${count !== 1 ? 's' : ''}</title>
+        </path>`;
       }
 
-      // Day name (Mon, Tue … Today)
-      svgBars += `<text x="${x + barW / 2}" y="${paddingTop + chartH + 16}" text-anchor="middle" font-size="11" font-weight="${isToday ? '700' : '500'}" fill="${isToday ? '#2e7dd1' : '#6b84a0'}" style="pointer-events:none;">${dayLabel}</text>`;
+      // Count label above bar inside a badge
+      if (count > 0) {
+        svg += `<rect x="${centerX - 14}" y="${barY - 26}" width="28" height="18" rx="5"
+          fill="#1e4d87"
+          stroke="none"
+          style="pointer-events:none;box-shadow:0 2px 4px rgba(0,0,0,0.05);"></rect>`;
+        svg += `<text class="bar-count-label"
+          x="${centerX}" y="${barY - 13}"
+          text-anchor="middle" font-size="11" font-weight="700"
+          fill="#ffffff" font-family="inherit"
+          style="pointer-events:none;">${count}</text>`;
+      }
 
-      // Date below day name
-      svgBars += `<text x="${x + barW / 2}" y="${paddingTop + chartH + 30}" text-anchor="middle" font-size="9.5" fill="${isToday ? '#5ba0d8' : '#a0b4c8'}" style="pointer-events:none;">${dateLabel}</text>`;
+      // Day name
+      svg += `<text
+        x="${centerX}" y="${paddingTop + chartH + 18}"
+        text-anchor="middle" font-size="11.5"
+        font-weight="${isToday ? '700' : '600'}"
+        fill="${dayColor}" font-family="inherit"
+        style="pointer-events:none;">${dayLabel}</text>`;
 
-      svgBars += `</g>`;
+      // Date sub-label
+      svg += `<text
+        x="${centerX}" y="${paddingTop + chartH + 32}"
+        text-anchor="middle" font-size="10" font-weight="500"
+        fill="${dateColor}" font-family="inherit"
+        style="pointer-events:none;">${dateLabel}</text>`;
+
+      // Today dot indicator
+      if (isToday) {
+        svg += `<circle cx="${centerX}" cy="${paddingTop + chartH + 42}" r="3" fill="#2a6baf" style="pointer-events:none;"/>`;
+      }
+
+      svg += `</g>`;
     });
 
-    dailyEl.innerHTML = `<svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}" class="daily-chart-svg" style="display:block;min-width:${svgW}px;height:${svgH}px;overflow:visible;">${svgBars}</svg>`;
-    // Scroll to the latest (rightmost) bar — today is always last
+    dailyEl.innerHTML = `<svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
+      class="daily-chart-svg" style="display:block;min-width:${svgW}px;overflow:visible;"
+    >${svg}</svg>`;
+
     requestAnimationFrame(() => { dailyEl.scrollLeft = dailyEl.scrollWidth; });
   }
 
@@ -3676,7 +4027,7 @@ async function loadDashboard() {
   const moEl = document.getElementById('most-opened-list');
   if (s.most_opened && s.most_opened.length > 0) {
     moEl.innerHTML = s.most_opened.map(w => `<div class="dash-list-item" style="cursor:pointer" onclick="location.href='?page=words&view_id=${w.id}'">
-      <div class="dash-list-item-text"><strong style="color:var(--navy-900)">${esc(w.term)}</strong></div>
+      <div class="dash-list-item-text">${esc(w.term)}</div>
       <span class="dash-tag">${w.review_count||0} views</span>
     </div>`).join('');
   } else { moEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No data yet</div>'; }
@@ -3685,7 +4036,7 @@ async function loadDashboard() {
   const tlEl = document.getElementById('today-learned-list');
   if (s.today_learned && s.today_learned.length > 0) {
     tlEl.innerHTML = s.today_learned.map(w => `<div class="dash-list-item" style="cursor:pointer" onclick="location.href='?page=words&view_id=${w.id}'">
-      <div class="dash-list-item-text"><strong style="color:var(--navy-900)">${esc(w.term)}</strong></div>
+      <div class="dash-list-item-text">${esc(w.term)}</div>
       <span class="dash-tag">${(w.last_reviewed || w.updated_at || '').slice(0,10)}</span>
     </div>`).join('');
   } else { tlEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No words mastered recently</div>'; }
@@ -3698,13 +4049,16 @@ async function loadDashboard() {
     return;
   }
   const recent = rw.words.slice(0, 5);
-  let tableHtml = '<div class="table-responsive"><table class="data-table"><thead><tr><th style="width:35%">Term</th><th style="width:25%">Category</th><th style="width:20%">Date Added</th><th style="width:20%">Status</th></tr></thead><tbody>';
+  let tableHtml = '<div class="table-responsive"><table class="data-table"><thead><tr><th style="width:35%">Term</th><th style="width:20%">Date Added</th><th style="width:25%">Category</th><th style="width:20%">Status</th></tr></thead><tbody>';
   recent.forEach(w => {
+    const statusHtml = w.mastered
+      ? '<span style="font-size:13px;font-weight:600;color:var(--success)">Mastered</span>'
+      : '<span style="font-size:13px;font-weight:500;color:var(--gray-400)">Learning</span>';
     tableHtml += `<tr>
-      <td><strong style="font-size:15px;font-weight:600;color:var(--navy-900)">${esc(w.term)}</strong></td>
-      <td style="color:var(--gray-400);font-size:12px">${esc(w.date_tag)}</td>
+      <td><strong style="font-size:13px;font-weight:600;color:var(--navy-900)">${esc(w.term)}</strong></td>
+      <td style="color:var(--gray-500);font-size:13px">${esc(w.date_tag)}</td>
       <td><span class="dash-tag">${esc(w.category_name)}</span></td>
-      <td>${w.mastered ? '<span class="mastered-badge">Mastered</span>' : '<span style="color:var(--gray-400);font-size:12px;font-weight:500">Learning</span>'}</td>
+      <td>${statusHtml}</td>
     </tr>`;
   });
   tableHtml += '</tbody></table></div>';
@@ -3717,6 +4071,7 @@ async function loadDashboard() {
 function renderWOTD(w) {
   const wc = document.getElementById('wotd-container');
   if (!w) { wc.style.display = 'none'; return; }
+  storeWOTD(w);
   wc.style.display = 'block';
   wc.innerHTML = `
     <div class="card" style="background: linear-gradient(135deg, var(--navy-900), var(--navy-700)); color: white; border: none; overflow:hidden; position:relative;">
@@ -3724,7 +4079,7 @@ function renderWOTD(w) {
       <div class="card-body wotd-body">
         <div style="flex: 1; min-width: 0;">
           <div style="font-size:11px; color:var(--navy-200); text-transform:uppercase; font-weight:600; letter-spacing:1px; margin-bottom:4px; display:flex; align-items:center; gap:6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Word of the Day</div>
-          <div style="font-size:28px; font-weight:700; margin-bottom:4px; font-family:'Noto Sans', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(w.term)}</div>
+          <div style="font-size:28px; font-weight:700; margin-bottom:4px; font-family:'Noto Sans', sans-serif; word-break: break-word; overflow-wrap: break-word; line-height:1.2;">${esc(w.term)}</div>
           <div style="font-size:14px; color:var(--navy-100); max-width:600px; line-height:1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${(w.definition || '').replace(/<[^>]+>/g, '') || '<em>No definition</em>'}</div>
         </div>
         <div class="wotd-actions">
@@ -3740,34 +4095,67 @@ function renderWOTD(w) {
   `;
 }
 
+// ---- WOTD localStorage daily persistence ----
+const WOTD_STORE_KEY = 'lexivault_wotd';
+
+function getTodayDateStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function getStoredWOTD() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(WOTD_STORE_KEY));
+    if (stored && stored.date === getTodayDateStr() && stored.word) return stored.word;
+  } catch(e) {}
+  return null;
+}
+
+function storeWOTD(word) {
+  try {
+    localStorage.setItem(WOTD_STORE_KEY, JSON.stringify({ date: getTodayDateStr(), word }));
+  } catch(e) {}
+}
+
 async function refreshWOTD() {
-  const r = await apiGet('random_word');
-  if (r.success && r.word) { renderWOTD(r.word); toast('New word loaded', 'success'); }
+  // Only fetches a different random word (within the same day), does NOT persist as the daily word
+  const current = getStoredWOTD();
+  const currentId = current ? current.id : null;
+  const r = await apiGet('random_word', currentId ? { exclude_id: currentId } : {});
+  if (r.success && r.word) {
+    // Store the new word so same-session refreshes stay consistent, but still tied to today
+    storeWOTD(r.word);
+    renderWOTD(r.word);
+    toast('New word loaded', 'success');
+  }
 }
 
 function focusDailyBar(el, event) {
   event.stopPropagation();
   const svg = el.closest('svg');
-  if (el.classList.contains('focused')) {
-      el.classList.remove('focused');
-      svg.classList.remove('has-focus');
-  } else {
-      svg.querySelectorAll('.daily-bar-group').forEach(g => g.classList.remove('focused'));
-      el.classList.add('focused');
-      svg.classList.add('has-focus');
+  const allGroups = svg.querySelectorAll('.daily-bar-group');
+  const isAlreadyFocused = el.classList.contains('focused');
+
+  // Clear all focused states first
+  allGroups.forEach(g => g.classList.remove('focused'));
+  svg.classList.remove('has-focus');
+
+  if (!isAlreadyFocused) {
+    // Focus the clicked bar — all others become passive via CSS
+    el.classList.add('focused');
+    svg.classList.add('has-focus');
   }
 }
 
-// Click outside to clear focus
+// Click outside chart to clear all focus
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.daily-chart-svg')) {
-      document.querySelectorAll('.daily-chart-svg.has-focus').forEach(svg => {
-          svg.classList.remove('has-focus');
-          svg.querySelectorAll('.focused').forEach(g => g.classList.remove('focused'));
-      });
+    document.querySelectorAll('.daily-chart-svg.has-focus').forEach(svg => {
+      svg.classList.remove('has-focus');
+      svg.querySelectorAll('.daily-bar-group.focused').forEach(g => g.classList.remove('focused'));
+    });
   }
-});
-<?php endif; ?>
+});<?php endif; ?>
 
 // ============================================================
 // WORDS PAGE
@@ -3881,7 +4269,22 @@ async function fetchAllWords() {
     isDataLoaded = true;
     const sb = document.getElementById('sb-word-count');
     if (sb) sb.textContent = r.total;
+    // Populate dynamic filters now that we have the data
+    populateWordTypeFilter();
+    loadTagsForFilter();
   }
+}
+
+function populateWordTypeFilter() {
+  const sel = document.getElementById('word-type-filter');
+  if (!sel) return;
+  const currentVal = sel.value; // Preserve selection
+  const usedTypes = [...new Set(allWordsCache.map(w => w.word_class).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All Word Types</option>';
+  usedTypes.forEach(t => {
+    sel.innerHTML += `<option value="${esc(t)}">${esc(t)}</option>`;
+  });
+  sel.value = currentVal;
 }
 
 async function loadWords() {
@@ -3897,6 +4300,7 @@ async function loadWords() {
 
   const search = document.getElementById('search-input').value.toLowerCase();
   const cat = document.getElementById('cat-filter').value;
+  const wordType = document.getElementById('word-type-filter').value;
   const tag = document.getElementById('tag-filter') ? document.getElementById('tag-filter').value : '';
   const date = document.getElementById('date-filter').value;
   const diff = document.getElementById('diff-filter').value;
@@ -3914,6 +4318,7 @@ async function loadWords() {
       );
   }
   if (cat) words = words.filter(w => w.category_id == cat);
+  if (wordType) words = words.filter(w => w.word_class === wordType);
   if (tag) words = words.filter(w => w.tags && w.tags.includes(tag));
   if (date) words = words.filter(w => w.date_tag === date);
   if (diff) words = words.filter(w => w.difficulty === diff);
@@ -4003,7 +4408,7 @@ function wordCard(w) {
       <div style="flex:1; min-width:0;">
         <div class="word-term" onclick="viewWord(${w.id})" style="cursor:pointer;font-weight:700">${esc(w.term)}</div>
         ${w.pronunciation ? `<div class="word-pos">${esc(w.pronunciation)}</div>` : ''}
-        ${w.part_of_speech ? `<div class="word-pos" style="margin-top:2px">${esc(w.part_of_speech)}</div>` : ''}
+        ${w.word_class ? `<div class="word-pos" style="margin-top:2px">${esc(w.word_class)}</div>` : ''}
       </div>
       <div class="word-card-actions">
         <button class="word-star-btn ${starClass}" onclick="toggleStar(${w.id})" id="star-${w.id}" title="${w.starred?'Unstar':'Star'}">
@@ -4058,24 +4463,170 @@ function goPage(p) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// ---- WORD DRAFT SYSTEM ----
+const DRAFT_KEY = 'lexivault_word_draft';
+
+function getDraftFields() {
+  return {
+    term:          document.getElementById('word-term').value,
+    pronunciation: document.getElementById('word-pronunciation').value,
+    word_class:    document.getElementById('word-class').value === '__OTHER__' 
+                     ? document.getElementById('word-class-manual').value.trim() 
+                     : document.getElementById('word-class').value,
+    category:      document.getElementById('word-category').value,
+    difficulty:    document.getElementById('word-difficulty').value,
+    source:        document.getElementById('word-source').value,
+    tags:          document.getElementById('word-tags').value,
+    notes:         document.getElementById('word-notes').value,
+    definition:    quillDef ? quillDef.root.innerHTML : '',
+  };
+}
+
+function isDraftEmpty(d) {
+  if (!d) return true;
+  const defText = (d.definition || '').replace(/<[^>]+>/g, '').trim();
+  return !d.term && !defText && !d.pronunciation && !d.notes && !d.tags && !d.word_class;
+}
+
+function saveDraft() {
+  // Only save drafts for NEW words (no id in the hidden field)
+  if (document.getElementById('word-id').value) return;
+  const d = getDraftFields();
+  if (isDraftEmpty(d)) {
+    localStorage.removeItem(DRAFT_KEY);
+  } else {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...d, savedAt: Date.now() }));
+  }
+}
+
+function clearDraft() {
+  localStorage.removeItem(DRAFT_KEY);
+}
+
+function loadDraftIntoForm(d) {
+  document.getElementById('word-term').value          = d.term || '';
+  document.getElementById('word-pronunciation').value = d.pronunciation || '';
+  populateWordClassDropdown(d.word_class || '');
+  document.getElementById('word-category').value      = d.category || '0';
+  document.getElementById('word-difficulty').value    = d.difficulty || 'medium';
+  document.getElementById('word-source').value        = d.source || '';
+  document.getElementById('word-tags').value          = d.tags || '';
+  document.getElementById('word-notes').value         = d.notes || '';
+  if (quillDef) quillDef.root.innerHTML               = d.definition || '';
+}
+
+function showDraftBanner() {
+  const existing = document.getElementById('draft-banner');
+  if (existing) existing.remove();
+  const banner = document.createElement('div');
+  banner.id = 'draft-banner';
+  banner.style.cssText = `
+    background: linear-gradient(135deg, #fff8e1, #fff3cd);
+    border: 1px solid #f0c040;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #7a5a00;
+    font-weight: 500;
+  `;
+  banner.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0;color:#c08a00"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    <span style="flex:1">Unsaved draft restored</span>
+    <button onclick="discardDraft()" style="background:none;border:none;cursor:pointer;color:#c08a00;font-size:12px;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap;">✕ Discard</button>
+  `;
+  const modalBody = document.querySelector('#word-modal-overlay .modal-body');
+  modalBody.insertBefore(banner, modalBody.firstChild);
+}
+
+function discardDraft() {
+  clearDraft();
+  // Reset form to blank new-word state
+  document.getElementById('word-term').value          = '';
+  document.getElementById('word-pronunciation').value = '';
+  populateWordClassDropdown('');
+  document.getElementById('word-category').value      = '0';
+  document.getElementById('word-difficulty').value    = 'medium';
+  document.getElementById('word-source').value        = '';
+  document.getElementById('word-tags').value          = '';
+  document.getElementById('word-notes').value         = '';
+  if (quillDef) quillDef.root.innerHTML               = '';
+  const banner = document.getElementById('draft-banner');
+  if (banner) banner.remove();
+  document.getElementById('word-term').focus();
+}
+
+// Auto-save draft every 2s while modal is open (new word only)
+let draftInterval = null;
+function startDraftAutosave() {
+  stopDraftAutosave();
+  draftInterval = setInterval(() => {
+    if (document.getElementById('word-modal-overlay').classList.contains('active')) {
+      saveDraft();
+    }
+  }, 2000);
+}
+function stopDraftAutosave() {
+  if (draftInterval) { clearInterval(draftInterval); draftInterval = null; }
+}
+
 // ---- WORD MODAL ----
 function openAddWord() {
   document.getElementById('word-modal-title').textContent = 'Add New Word';
   document.getElementById('word-id').value = '';
-  document.getElementById('word-term').value = '';
-  document.getElementById('word-pronunciation').value = '';
-  document.getElementById('word-pos').value = '';
-  document.getElementById('word-category').value = '0';
-  document.getElementById('word-difficulty').value = 'medium';
-  document.getElementById('word-source').value = '';
-  document.getElementById('word-tags').value = '';
-  document.getElementById('word-notes').value = '';
-  if (quillDef) quillDef.root.innerHTML = '';
-  document.getElementById('word-modal-overlay').classList.add('active');
-  setTimeout(() => document.getElementById('word-term').focus(), 200);
+
+  // On non-words pages the category dropdown may not be populated yet — fill it now
+  const catSel = document.getElementById('word-category');
+  if (catSel && catSel.options.length <= 1) {
+    apiGet('categories_list').then(r => {
+      if (!r.success) return;
+      r.categories.forEach(c => {
+        catSel.innerHTML += `<option value="${c.id}">${esc(c.name)}</option>`;
+      });
+    });
+  }
+
+  // Check for existing draft
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY)); } catch(e) {}
+
+  if (!isDraftEmpty(draft)) {
+    // Restore draft first, then show banner
+    loadDraftIntoForm(draft);
+    document.getElementById('word-modal-overlay').classList.add('active');
+    setTimeout(() => {
+      showDraftBanner();
+      document.getElementById('word-term').focus();
+    }, 50);
+  } else {
+    // Fresh blank form
+    document.getElementById('word-term').value          = '';
+    document.getElementById('word-pronunciation').value = '';
+    populateWordClassDropdown('');
+    document.getElementById('word-category').value      = '0';
+    document.getElementById('word-difficulty').value    = 'medium';
+    document.getElementById('word-source').value        = '';
+    document.getElementById('word-tags').value          = '';
+    document.getElementById('word-notes').value         = '';
+    if (quillDef) quillDef.root.innerHTML               = '';
+    document.getElementById('word-modal-overlay').classList.add('active');
+    setTimeout(() => document.getElementById('word-term').focus(), 200);
+  }
+
+  startDraftAutosave();
 }
 
-function closeWordModal() {
+function closeWordModal(skipDraftSave) {
+  // Save draft before closing only if it's a new word with content AND we're not explicitly saving
+  if (!skipDraftSave && !document.getElementById('word-id').value) {
+    saveDraft();
+  }
+  stopDraftAutosave();
+  const banner = document.getElementById('draft-banner');
+  if (banner) banner.remove();
   document.getElementById('word-modal-overlay').classList.remove('active');
 }
 
@@ -4097,7 +4648,11 @@ async function autoFetchDefinition() {
     if (phonetic) document.getElementById('word-pronunciation').value = phonetic;
     if (entry.meanings && entry.meanings.length > 0) {
       const meaning = entry.meanings[0];
-      if (meaning.partOfSpeech) document.getElementById('word-pos').value = meaning.partOfSpeech;
+      if (meaning.partOfSpeech) {
+        let apiPos = meaning.partOfSpeech;
+        apiPos = apiPos.charAt(0).toUpperCase() + apiPos.slice(1);
+        populateWordClassDropdown(apiPos);
+      }
       if (meaning.definitions && meaning.definitions.length > 0) {
         const def = meaning.definitions[0];
         if (quillDef) quillDef.root.innerHTML = `<p>${def.definition}</p>`;
@@ -4119,13 +4674,17 @@ async function editWord(id) {
   document.getElementById('word-id').value = w.id;
   document.getElementById('word-term').value = w.term;
   document.getElementById('word-pronunciation').value = w.pronunciation || '';
-  document.getElementById('word-pos').value = w.part_of_speech || '';
+  populateWordClassDropdown(w.word_class || '');
   document.getElementById('word-category').value = w.category_id || '0';
   document.getElementById('word-difficulty').value = w.difficulty || 'medium';
   document.getElementById('word-source').value = w.source || '';
   document.getElementById('word-tags').value = (w.tags||[]).join(', ');
   document.getElementById('word-notes').value = w.notes || '';
   if (quillDef) quillDef.root.innerHTML = w.definition || '';
+  // Editing an existing word — no draft involvement, no autosave
+  stopDraftAutosave();
+  const banner = document.getElementById('draft-banner');
+  if (banner) banner.remove();
   document.getElementById('word-modal-overlay').classList.add('active');
 }
 
@@ -4133,11 +4692,14 @@ async function saveWord() {
   const term = document.getElementById('word-term').value.trim();
   if (!term) { toast('Please enter a term', 'error'); return; }
 
+  let wordClass = document.getElementById('word-class').value;
+  if (wordClass === '__OTHER__') wordClass = document.getElementById('word-class-manual').value.trim();
+
   const fd = new FormData();
   fd.append('id', document.getElementById('word-id').value);
   fd.append('term', term);
   fd.append('pronunciation', document.getElementById('word-pronunciation').value);
-  fd.append('part_of_speech', document.getElementById('word-pos').value);
+  fd.append('word_class', wordClass);
   fd.append('category_id', document.getElementById('word-category').value);
   fd.append('definition', quillDef ? quillDef.root.innerHTML : '');
   fd.append('difficulty', document.getElementById('word-difficulty').value);
@@ -4151,10 +4713,13 @@ async function saveWord() {
   }).then(res => res.json()).catch(e => ({success: false, message: 'Network error'}));
 
   if (r.success) {
+    clearDraft();
+    stopDraftAutosave();
     toast(fd.get('id') ? 'Word updated' : 'Word added', 'success');
-    closeWordModal();
+    closeWordModal(true); // pass true so closeWordModal does NOT re-save the draft
     isDataLoaded = false;
-    loadWords();
+    if (typeof loadWords === 'function') loadWords();
+    if (typeof loadWordCount === 'function') loadWordCount();
   } else {
     toast(r.message || 'Save failed', 'error');
   }
@@ -4169,7 +4734,7 @@ async function viewWord(id) {
   
   const rawDef = (w.definition || '').replace(/<[^>]+>/g, '');
   let copyStr = w.term + (w.pronunciation ? ` (${w.pronunciation})` : '');
-  if (w.part_of_speech) copyStr += `\nType: ${w.part_of_speech}`;
+  if (w.word_class) copyStr += `\nType: ${w.word_class}`;
   if (rawDef) copyStr += `\nDefinition: ${rawDef}`;
   const copyData = btoa(unescape(encodeURIComponent(copyStr)));
   
@@ -4193,7 +4758,7 @@ async function viewWord(id) {
         </div>
       </div>
       <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
-        ${w.part_of_speech ? `<span style="background:rgba(255,255,255,0.15);color:white;padding:4px 14px;border-radius:20px;font-size:13px;font-weight:500;font-style:italic">${esc(w.part_of_speech)}</span>` : ''}
+        ${w.word_class ? `<span style="background:rgba(255,255,255,0.15);color:white;padding:4px 14px;border-radius:20px;font-size:13px;font-weight:500;font-style:italic">${esc(w.word_class)}</span>` : ''}
         <span style="background:rgba(255,255,255,0.15);color:white;padding:4px 14px;border-radius:20px;font-size:13px;font-weight:500">${esc(w.category_name)}</span>
         <span style="background:rgba(255,255,255,0.15);color:white;padding:4px 14px;border-radius:20px;font-size:13px;font-weight:500">${cap(w.difficulty||'medium')}</span>
       </div>
@@ -4722,7 +5287,11 @@ function shareWord(b64) {
 document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => {
     if (e.target === o) {
-      o.classList.remove('active');
+      if (o.id === 'word-modal-overlay') {
+        closeWordModal(false); // saves draft before closing
+      } else {
+        o.classList.remove('active');
+      }
     }
   });
 });
